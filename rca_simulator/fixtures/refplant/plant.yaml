@@ -1,0 +1,25 @@
+version: 1
+site:
+  site_id: SITE-DEMO
+  name: Demo Refinery
+  timezone: America/Chicago
+  areas:
+  - area_id: AREA-100
+    name: Crude Unit
+    units:
+    - unit_id: UNIT-101
+      name: Crude Distillation
+      equipment:
+      - asset_ref: P-101A
+      - asset_ref: P-101B
+    - unit_id: UNIT-102
+      name: Hydrotreater Feed
+      equipment:
+      - asset_ref: P-102A
+  - area_id: AREA-200
+    name: Tank Farm
+    units:
+    - unit_id: UNIT-201
+      name: Transfer
+      equipment:
+      - asset_ref: P-103A

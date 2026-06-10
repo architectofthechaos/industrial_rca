@@ -1,0 +1,45 @@
+version: 1
+scenario_id: cavitation_event
+description: Sudden NPSH loss causing cavitation on P-101B over ~6 hours.
+affected_asset: P-101B
+failure_mode_iso14224: VIB
+duration_days: 1
+t0: '2026-03-05T00:00:00Z'
+signal_trajectories:
+- role: suction_pressure
+  trajectory: linear_decay
+  start_offset: 0
+  end_offset: -120
+- role: vibration_radial
+  trajectory: linear_growth
+  start_offset: 0
+  end_offset: 5.0
+- role: discharge_pressure
+  trajectory: linear_decay
+  start_offset: 0
+  end_offset: -90
+events:
+- at_day: 0.75
+  type: alarm
+  sink: alarms
+  payload:
+    alarm_id: ALM-2026-03-05-3300
+    signal: P-101B.vibration_radial
+    level: trip
+    threshold: 7.1
+- at_day: 0.6
+  type: work_order
+  sink: maximo
+  payload:
+    wo_number: WO-50012510
+    type: corrective
+    priority: 1
+    problem_code: CAVN
+    narrative: Suction strainer plugged - cavitation trip
+expected_rca:
+  primary_failure_mode: cavitation
+  root_causes:
+  - upstream_strainer_plugged
+  must_cite_evidence:
+  - signal_role: suction_pressure
+  - signal_role: vibration_radial

@@ -1,0 +1,75 @@
+# Local-dev stack for the source-side simulators (EPIC-002, Track B).
+# Each service stands in for a real upstream SOURCE. Connectors (EPIC-013, separate)
+# point at these instead of real systems.
+#
+# Operate via the Taskfile: `task up` / `task down`. Ports: PI 8001, Maximo 8002,
+# SAP 8003, Documents 8004, OPC UA 4840, MQTT 1883, MinIO 9000/9001.
+# The shared fixture tree is mounted read-only so edits don't need a rebuild.
+
+services:
+  # S2.7 — MQTT Sparkplug B (real broker + publisher)
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+
+  sim-mqtt:
+    build: { context: ., dockerfile: rca_simulator/mqtt/Dockerfile }
+    depends_on: [mosquitto]
+    environment:
+      MQTT_BROKER: mosquitto:1883
+      FIXTURE_PATH: /fixtures/refplant
+    volumes:
+      - ./fixtures:/fixtures:ro
+
+  # S2.5 — OPC UA (real asyncua server)
+  sim-opcua:
+    build: { context: ., dockerfile: rca_simulator/opcua/Dockerfile }
+    ports: ["4840:4840"]
+    environment:
+      FIXTURE_PATH: /fixtures/refplant
+    volumes:
+      - ./fixtures:/fixtures:ro
+
+  # S2.2 — PI Historian (PI Web API REST subset)
+  sim-pi:
+    build: { context: ., dockerfile: rca_simulator/pi/Dockerfile }
+    ports: ["8001:8000"]
+    environment:
+      FIXTURE_PATH: /fixtures/refplant
+    volumes:
+      - ./fixtures:/fixtures:ro
+
+  # S2.3 — Maximo (OSLC REST)
+  sim-maximo:
+    build: { context: ., dockerfile: rca_simulator/maximo/Dockerfile }
+    ports: ["8002:8000"]
+    environment:
+      FIXTURE_PATH: /fixtures/refplant
+    volumes:
+      - ./fixtures:/fixtures:ro
+
+  # S2.4 — SAP PM (OData v2)
+  sim-sap-pm:
+    build: { context: ., dockerfile: rca_simulator/sap_pm/Dockerfile }
+    ports: ["8003:8000"]
+    environment:
+      FIXTURE_PATH: /fixtures/refplant
+    volumes:
+      - ./fixtures:/fixtures:ro
+
+  # S2.6 — SharePoint / S3 documents (HTTP REST + MinIO variant)
+  sim-documents:
+    build: { context: ., dockerfile: rca_simulator/documents/Dockerfile }
+    ports: ["8004:8000"]
+    environment:
+      DOCS_PATH: /fixtures/refplant/documents
+    volumes:
+      - ./fixtures:/fixtures:ro
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]

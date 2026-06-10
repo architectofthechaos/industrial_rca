@@ -1,0 +1,8 @@
+note: MVP QUDT unit allowlist (symbols used by the centrifugal_pump reference class).
+qudt_units:
+- kPa
+- A
+- MilliM-PER-SEC
+- DEG_C
+- M3-PER-HR
+- L-PER-MIN

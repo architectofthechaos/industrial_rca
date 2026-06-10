@@ -1,0 +1,16 @@
+version: 1
+work_orders:
+- wo_number: WO-49900001
+  asset: P-101A
+  type: preventive
+  status: closed
+  opened: '2025-10-02T08:00:00'
+  problem_code: PM
+  narrative: Quarterly PM - vibration route
+- wo_number: WO-49900044
+  asset: P-102A
+  type: preventive
+  status: closed
+  opened: '2025-11-14T09:30:00'
+  problem_code: PM
+  narrative: Lube oil change

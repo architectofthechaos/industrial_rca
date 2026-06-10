@@ -1,0 +1,41 @@
+version: 1
+scenario_id: motor_trip_overload
+description: Motor overload trip on P-103A during reduced-flow upset.
+affected_asset: P-103A
+failure_mode_iso14224: STP
+duration_days: 1
+t0: '2026-03-15T00:00:00Z'
+signal_trajectories:
+- role: motor_amps
+  trajectory: linear_growth
+  start_offset: 0
+  end_offset: 55
+- role: discharge_pressure
+  trajectory: linear_decay
+  start_offset: 0
+  end_offset: -120
+events:
+- at_day: 0.98
+  type: alarm
+  sink: alarms
+  payload:
+    alarm_id: ALM-2026-03-15-7700
+    signal: P-103A.motor_amps
+    level: trip
+    threshold: 230
+- at_day: 0.99
+  type: work_order
+  sink: maximo
+  payload:
+    wo_number: WO-50012700
+    type: corrective
+    priority: 1
+    problem_code: ELEC
+    narrative: Overload trip during low-flow upset
+expected_rca:
+  primary_failure_mode: motor_electrical
+  root_causes:
+  - process_upset_motor_overload
+  must_cite_evidence:
+  - signal_role: motor_amps
+  - work_order_problem_code: ELEC

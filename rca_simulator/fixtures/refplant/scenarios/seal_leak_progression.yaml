@@ -1,0 +1,72 @@
+version: 1
+scenario_id: seal_leak_progression
+description: Slow mechanical seal degradation over 30 days on P-101A.
+affected_asset: P-101A
+failure_mode_iso14224: LEK
+duration_days: 30
+t0: '2026-03-01T00:00:00Z'
+signal_trajectories:
+- role: discharge_pressure
+  trajectory: linear_decay
+  start_offset: 0
+  end_offset: -180
+- role: motor_amps
+  trajectory: linear_growth
+  start_offset: 0
+  end_offset: 8
+- role: seal_flush_flow
+  trajectory: linear_decay
+  start_offset: 0
+  end_offset: -4.5
+- role: vibration_radial
+  trajectory: step_then_growth
+  steps:
+  - at_day: 18
+    offset: 1.2
+  - at_day: 25
+    offset: 4.5
+events:
+- at_day: 5
+  type: operator_log
+  sink: documents
+  payload:
+    doc_id: NOTE-2026-03-06-001
+    author: J. Operator
+    text: P-101A slight whine, watching.
+- at_day: 12
+  type: alarm
+  sink: alarms
+  payload:
+    alarm_id: ALM-2026-03-13-9912
+    signal: P-101A.vibration_radial
+    level: warning
+    threshold: 4.0
+    duration_min: 35
+- at_day: 18
+  type: work_order
+  sink: maximo
+  payload:
+    wo_number: WO-50012345
+    type: corrective
+    priority: 3
+    problem_code: VIBR
+    narrative: Vibration trending up - inspect seal
+- at_day: 28
+  type: work_order
+  sink: maximo
+  payload:
+    wo_number: WO-50012402
+    type: corrective
+    priority: 1
+    problem_code: LEAK
+    failure_code: LEK
+    narrative: Mechanical seal leak confirmed, plan shutdown
+expected_rca:
+  primary_failure_mode: mechanical_seal_failure
+  root_causes:
+  - dry_running_seal_face
+  - insufficient_flush_flow
+  must_cite_evidence:
+  - signal_role: vibration_radial
+  - work_order_problem_code: LEAK
+  - document_keyword: mechanical seal

@@ -1,0 +1,29 @@
+template_class: centrifugal_pump
+template_version: v0.3.1
+note: Snapshot of SPEC-015 signal_roles, copied as DATA so simulators never import
+  packages/templates (ADR-0012).
+signal_roles:
+- role: discharge_pressure
+  qudt_quantity_kind: Pressure
+  canonical_units: kPa
+- role: suction_pressure
+  qudt_quantity_kind: Pressure
+  canonical_units: kPa
+- role: flow
+  qudt_quantity_kind: VolumeFlowRate
+  canonical_units: M3-PER-HR
+- role: motor_amps
+  qudt_quantity_kind: ElectricCurrent
+  canonical_units: A
+- role: vibration_radial
+  qudt_quantity_kind: Velocity
+  canonical_units: MilliM-PER-SEC
+- role: bearing_temp_de
+  qudt_quantity_kind: Temperature
+  canonical_units: DEG_C
+- role: bearing_temp_nde
+  qudt_quantity_kind: Temperature
+  canonical_units: DEG_C
+- role: seal_flush_flow
+  qudt_quantity_kind: VolumeFlowRate
+  canonical_units: L-PER-MIN

@@ -1,0 +1,23 @@
+version: 1
+asset_id_seed: 0190d3c9-0000-7000-8000-000000000004
+external_ids:
+  pi_af_path: \\PI-DEMO\Refinery\P-103A
+  maximo_location: TKFM-P103A
+  sap_equipment: '10001255'
+  uns_segment: crude.p103a
+tag: P-103A
+service: transfer pump
+iso14224_class: pump.centrifugal
+nameplate:
+  manufacturer: Sulzer
+  model: OH2-200
+  serial: SN-2017-00188
+  rated_flow_m3h: 400
+  rated_head_m: 85
+  rated_speed_rpm: 1480
+  rated_power_kw: 90
+parent_unit: UNIT-201
+criticality: low
+installed_at: '2018-06-12'
+template_class: centrifugal_pump
+template_version: v0.3.1

@@ -1,0 +1,26 @@
+version: 1
+asset_ref: P-101A
+role: bearing_temp_de
+display_name: P-101A Bearing Temp De
+source_systems:
+- source: pi
+  raw_tag: PUMP_P101A.BEARING_TEMP_DE
+  af_attribute: \\PI-DEMO\Refinery\P-101A|bearing_temp_de
+  units_raw: degC
+- source: uns
+  raw_tag: spBv1.0/SITE-DEMO/DDATA/p-101a/bearing_temp_de
+  units_raw: degC
+canonical_units: DEG_C
+qudt_quantity_kind: Temperature
+sampling:
+  expected_hz: 1.0
+  stored_compression_deviation: 0.1
+range:
+  operating_min: 40
+  operating_max: 90
+  alarm_lo: 30
+  alarm_hi: 100
+baseline:
+  mean: 65
+  stddev: 2
+  diurnal_amplitude: 3

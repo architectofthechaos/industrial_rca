@@ -1,0 +1,8 @@
+doc_id: DS-P101B
+title: P-101B BFW Pump Datasheet
+doc_type: datasheet
+asset: P-101B
+scanned: false
+text: Boiler feed water centrifugal pump. NPSH required 4.5 m. Susceptible to cavitation
+  if suction pressure falls below NPSHr. Monitor suction strainer differential pressure
+  to avoid cavitation and vibration.

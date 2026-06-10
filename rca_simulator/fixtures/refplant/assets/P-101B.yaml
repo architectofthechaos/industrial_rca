@@ -1,0 +1,23 @@
+version: 1
+asset_id_seed: 0190d3c9-0000-7000-8000-000000000002
+external_ids:
+  pi_af_path: \\PI-DEMO\Refinery\P-101B
+  maximo_location: CRDU-P101B
+  sap_equipment: '10001235'
+  uns_segment: crude.p101b
+tag: P-101B
+service: boiler feed water pump
+iso14224_class: pump.centrifugal
+nameplate:
+  manufacturer: Sulzer
+  model: AHLSTAR-A22-50
+  serial: SN-2018-00472
+  rated_flow_m3h: 180
+  rated_head_m: 320
+  rated_speed_rpm: 3550
+  rated_power_kw: 160
+parent_unit: UNIT-101
+criticality: high
+installed_at: '2018-06-12'
+template_class: centrifugal_pump
+template_version: v0.3.1

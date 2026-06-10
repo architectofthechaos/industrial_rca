@@ -1,0 +1,11 @@
+version: 1
+reference_time: '2026-03-01T00:00:00Z'
+window_start: '2026-03-01T00:00:00Z'
+window_end: '2026-12-31T00:00:00Z'
+clock_skews:
+  pi: 0.0
+  maximo: 1.5
+  sap_pm: -2.3
+  opc_ua: 0.2
+  uns: 0.1
+  sharepoint: 0.0

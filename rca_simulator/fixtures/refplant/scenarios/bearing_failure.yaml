@@ -1,0 +1,38 @@
+version: 1
+scenario_id: bearing_failure
+description: Drive-end bearing wear progressing to trip on P-102A over 30 days.
+affected_asset: P-102A
+failure_mode_iso14224: VIB
+duration_days: 30
+t0: '2026-03-10T00:00:00Z'
+signal_trajectories:
+- role: vibration_radial
+  trajectory: step_then_growth
+  steps:
+  - at_day: 20
+    offset: 2.0
+  - at_day: 28
+    offset: 5.0
+- role: bearing_temp_de
+  trajectory: linear_growth
+  start_offset: 0
+  end_offset: 18
+events:
+- at_day: 29
+  type: work_order
+  sink: maximo
+  payload:
+    wo_number: WO-50012620
+    type: corrective
+    priority: 2
+    problem_code: BEAR
+    failure_code: VIB
+    narrative: DE bearing noise + temp rise, replace bearing
+expected_rca:
+  primary_failure_mode: bearing_failure
+  root_causes:
+  - de_bearing_wear
+  must_cite_evidence:
+  - signal_role: vibration_radial
+  - signal_role: bearing_temp_de
+  - work_order_problem_code: BEAR

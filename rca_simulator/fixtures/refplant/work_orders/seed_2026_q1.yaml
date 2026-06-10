@@ -1,0 +1,16 @@
+version: 1
+work_orders:
+- wo_number: WO-50010012
+  asset: P-101B
+  type: corrective
+  status: closed
+  opened: '2026-01-20T13:15:00'
+  problem_code: SEAL
+  narrative: Minor seal weep, monitored
+- wo_number: WO-50010099
+  asset: P-103A
+  type: preventive
+  status: closed
+  opened: '2026-02-05T07:45:00'
+  problem_code: PM
+  narrative: Coupling alignment check

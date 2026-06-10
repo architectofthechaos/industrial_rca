@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RCA MVP — Progress Dashboard</title>
+<style>
+  :root {
+    --bg: #faf9f5; --surface: #ffffff; --ink: #1a1a18; --muted: #6b6a64;
+    --line: rgba(0,0,0,0.10); --line2: rgba(0,0,0,0.18);
+    --done-bg: #C6EFCE; --done-fg: #0f5132;
+    --prog-bg: #FFEB9C; --prog-fg: #7a5b00;
+    --none-bg: #F1EFE8; --none-fg: #6b6a64;
+    --ahead-bg: #BDD7EE; --ahead-fg: #1F4E79;
+    --accent: #305496;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1b18; --surface: #262521; --ink: #f2efe9; --muted: #a5a39a;
+      --line: rgba(255,255,255,0.12); --line2: rgba(255,255,255,0.22);
+      --done-bg: #14361f; --done-fg: #9fe1cb;
+      --prog-bg: #3d3308; --prog-fg: #f5c97a;
+      --none-bg: #2f2e29; --none-fg: #a5a39a;
+      --ahead-bg: #173049; --ahead-fg: #9cc4ee;
+      --accent: #6f9bd6;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--ink); line-height: 1.5; padding: 28px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 12px; margin-bottom: 26px; }
+  .card { background: var(--surface); border: 0.5px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .card .lbl { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .card .num { font-size: 26px; font-weight: 600; }
+  .card .num small { font-size: 14px; color: var(--muted); font-weight: 400; }
+  .bar { height: 8px; border-radius: 6px; background: var(--none-bg); overflow: hidden; margin-top: 10px; display:flex; }
+  .bar > i { display:block; height:100%; }
+  h2 { font-size: 16px; font-weight: 600; margin: 26px 0 12px; }
+  .epic-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 10px; margin-bottom: 8px; }
+  .epic { background: var(--surface); border: 0.5px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .epic .top { display:flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .epic .name { font-size: 13px; font-weight: 500; }
+  .epic .frac { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .epic .ebar { height: 6px; border-radius: 5px; background: var(--none-bg); overflow: hidden; margin-top: 9px; display:flex; }
+  .epic .ebar > i { display:block; height:100%; }
+  .pill { display:inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 500; }
+  .pill.done { background: var(--done-bg); color: var(--done-fg); }
+  .pill.prog { background: var(--prog-bg); color: var(--prog-fg); }
+  .pill.none { background: var(--none-bg); color: var(--none-fg); }
+  .controls { display:flex; gap: 8px; flex-wrap: wrap; align-items:center; margin: 18px 0 12px; }
+  .controls input[type=search] { flex:1; min-width: 180px; padding: 8px 12px; border:0.5px solid var(--line2);
+        border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 13px; }
+  .seg { display:flex; border:0.5px solid var(--line2); border-radius: 8px; overflow:hidden; }
+  .seg button { border:none; background: var(--surface); color: var(--muted); padding: 7px 12px; font-size:12px; cursor:pointer; }
+  .seg button.on { background: var(--accent); color:#fff; }
+  .chk { font-size: 12px; color: var(--muted); display:flex; align-items:center; gap:6px; cursor:pointer; }
+  table { width:100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align:left; font-weight:500; color: var(--muted); font-size: 11px; text-transform: uppercase;
+        letter-spacing: .04em; padding: 8px 10px; border-bottom: 0.5px solid var(--line2); position: sticky; top:0; background: var(--bg); }
+  tbody td { padding: 9px 10px; border-bottom: 0.5px solid var(--line); vertical-align: top; }
+  tbody tr.diff td { background: color-mix(in srgb, var(--ahead-bg) 28%, transparent); }
+  .sid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); white-space:nowrap; }
+  .st { font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight:500; white-space:nowrap; }
+  .st.done { background: var(--done-bg); color: var(--done-fg); }
+  .st.prog { background: var(--prog-bg); color: var(--prog-fg); }
+  .st.none { background: var(--none-bg); color: var(--none-fg); }
+  .st.defer { background: #E4DFEC; color: #5F497A; }
+  .diffflag { font-size:11px; font-weight:600; color: var(--ahead-fg); white-space:nowrap; }
+  .note { color: var(--muted); font-size: 12px; }
+  .legend { font-size:12px; color: var(--muted); margin: 8px 0 0; }
+  .foot { color: var(--muted); font-size: 11px; margin-top: 24px; border-top: 0.5px solid var(--line); padding-top:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>RCA MVP — Progress Dashboard</h1>
+  <p class="sub" id="subline"></p>
+
+  <div class="cards" id="summary"></div>
+
+  <h2>Epics</h2>
+  <p class="legend">Bars: <span class="pill done">done</span> <span class="pill prog">in progress</span> <span class="pill none">not started</span> · highlighted rows = ahead of the Jun-4 tracker.</p>
+  <div class="epic-grid" id="epics"></div>
+
+  <div class="controls">
+    <input type="search" id="q" placeholder="Filter by ID, story, or note…" />
+    <div class="seg" id="statusSeg">
+      <button data-s="all" class="on">All</button>
+      <button data-s="Done">Done</button>
+      <button data-s="In progress">In prog</button>
+      <button data-s="Not started">Not started</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="diffOnly" /> Ahead-of-tracker only</label>
+  </div>
+
+  <table>
+    <thead><tr><th>ID</th><th>Story</th><th>Epic</th><th>Tracker</th><th>Verified</th><th>Diff</th><th>Evidence</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <p class="foot" id="foot"></p>
+</div>
+
+<script>
+const DATA = {
+  generated: "2026-06-09",
+  trackerDate: "2026-06-04",
+  testSuite: "58 passed, 9 skipped · ruff + mypy clean (50 source files)",
+  epics: {
+    "EPIC-001": "Foundations", "EPIC-012": "MAR", "EPIC-003": "TRS",
+    "EPIC-004": "Templates", "EPIC-013": "Connectors", "EPIC-005": "MCP",
+    "EPIC-006": "Temporal", "EPIC-007": "Agents", "EPIC-008": "HITL UI",
+    "EPIC-009": "Eval", "EPIC-010": "Observability", "EPIC-011": "Pilot",
+    "EPIC-002": "Simulators (Track B)"
+  },
+  stories: [
+    ["S1.1","EPIC-001","Monorepo setup","Not started","Done","packages/, infra/, docs/, Taskfile present"],
+    ["S1.2","EPIC-001","Pydantic v2 contracts","Not started","Done","Full contract set + round-trip tests"],
+    ["S1.3","EPIC-001","docker-compose dev stack","Not started","Done","infra/docker-compose.yaml + initdb"],
+    ["S1.4","EPIC-001","Alembic migrations baseline","Not started","Done","0001_initial for MAR + TRS"],
+    ["S1.5","EPIC-001","Round-trip contract test","Not started","Done","Contract tests pass"],
+    ["S12.1","EPIC-012","MAR schemas + Postgres tables","Not started","Done","models.py + migrations + repository_pg"],
+    ["S12.2","EPIC-012","MAR.resolve(name/site)","Not started","Done","resolver.py"],
+    ["S12.3","EPIC-012","MAR.get(asset_id)","Not started","Done","server/repository"],
+    ["S12.4","EPIC-012","MAR.search + hierarchy","Not started","Done","search + resolution + cache"],
+    ["S12.5","EPIC-012","MAR ↔ PI AF adapter","Not started","Not started","deferred"],
+    ["S12.6","EPIC-012","MAR ↔ Maximo adapter","Not started","Not started","deferred"],
+    ["S12.7","EPIC-012","MAR ↔ Spreadsheet bootstrap","Not started","Not started","not built"],
+    ["S12.8","EPIC-012","MAR ↔ SAP PM adapter","Not started","Not started","deferred"],
+    ["S3.1","EPIC-003","TRS schemas + Postgres tables","Not started","Done","models.py + migrations + repository_pg"],
+    ["S3.2","EPIC-003","TRS.resolve_tag","Not started","Done","resolver.py"],
+    ["S3.3","EPIC-003","TRS.search + TRS.get","Not started","Done","server"],
+    ["S3.4","EPIC-003","UNS BIRTH/DEATH consumer","Not started","Not started","not built"],
+    ["S3.5","EPIC-003","PI AF tag enumeration","Not started","Not started","not built"],
+    ["S3.6","EPIC-003","Unresolved-tag queue + HITL","Not started","Not started","not built"],
+    ["S4.1","EPIC-004","Template loader + validator","Not started","Not started","no templates package"],
+    ["S4.2","EPIC-004","Centrifugal pump template","Not started","Not started","not built"],
+    ["S4.3","EPIC-004","Template MCP tools","Not started","Not started","not built"],
+    ["S4.4","EPIC-004","Overlay enforcement","Not started","Not started","not built"],
+    ["S13.1","EPIC-013","connector_sdk: BaseConnector","Not started","Done","ports, lifecycle, streaming primitives"],
+    ["S13.2","EPIC-013","PI connector","Not started","Done","connector + parity test"],
+    ["S13.3","EPIC-013","Maximo connector","Not started","Done","connector + parity test"],
+    ["S13.4","EPIC-013","SAP PM connector","Not started","Done","connector + parity test"],
+    ["S13.5","EPIC-013","OPC UA connector","Not started","Done","connector + parity test"],
+    ["S13.6","EPIC-013","Document connector","Not started","Done","connector + parity (S3/MinIO deferred)"],
+    ["S13.7","EPIC-013","MQTT/UNS connector","Not started","Done","connector + parity test"],
+    ["S13.8","EPIC-013","Connector ↔ sim parity tests","Not started","Done","per-connector + cross-source harness"],
+    ["S13.9","EPIC-013","Credential broker integration","Not started","In progress","deferred / partial"],
+    ["S5.1","EPIC-005","MCP tier registration + auth","Not started","Deferred","Phase 1: all tools exposed (decision 2026-06-09)"],
+    ["S5.2","EPIC-005","MCP catalog per tier","Not started","Deferred","Phase 1: all tools exposed (decision 2026-06-09)"],
+    ["S5.3","EPIC-005","Rate limit + budget guard","Not started","Deferred","Revisit post-Phase-1"],
+    ["S6.1","EPIC-006","Probe workflow skeleton","Not started","Not started","not built"],
+    ["S6.2","EPIC-006","Probe trigger ingestion + dedup","Not started","Not started","not built"],
+    ["S6.3","EPIC-006","HITL signals","Not started","Not started","not built"],
+    ["S6.4","EPIC-006","Tenant onboarding workflow","Not started","Not started","not built"],
+    ["S6.5","EPIC-006","Retry/timeout/SLA policies","Not started","Not started","not built"],
+    ["S7.1","EPIC-007","Tier 1 Scope agent","Not started","Not started","no agents package"],
+    ["S7.2","EPIC-007","Tier 2 Evidence agent","Not started","Not started","not built"],
+    ["S7.3","EPIC-007","Tier 3 Reason agent","Not started","Not started","not built"],
+    ["S7.4","EPIC-007","Tier 4 Govern agent","Not started","Not started","not built"],
+    ["S8.1","EPIC-008","Review screen","Not started","Not started","no HITL UI"],
+    ["S8.2","EPIC-008","Approve/reject + signal routing","Not started","Not started","not built"],
+    ["S8.3","EPIC-008","Onboarding gates UI","Not started","Not started","not built"],
+    ["S9.1","EPIC-009","Replay runner","Not started","Not started","no eval harness"],
+    ["S9.2","EPIC-009","Scoring harness","Not started","Not started","not built"],
+    ["S9.3","EPIC-009","10-probe golden set","Not started","Not started","not built"],
+    ["S10.1","EPIC-010","OpenTelemetry instrumentation","Not started","Not started","not built"],
+    ["S10.2","EPIC-010","Cost dashboard","Not started","Not started","not built"],
+    ["S10.3","EPIC-010","HITL dashboard","Not started","Not started","not built"],
+    ["S11.1","EPIC-011","Parity tests: sim vs real","Not started","Not started","not started"],
+    ["S11.2","EPIC-011","Customer configs","Not started","Not started","not built"],
+    ["S11.3","EPIC-011","Runbook + playbooks","Not started","Not started","not built"],
+    ["S11.4","EPIC-011","Pilot acceptance gate","Not started","Not started","not built"],
+    ["S2.1","EPIC-002","Fixture loader + manifest","Not started","Done","loader + refplant fixtures"],
+    ["S2.8","EPIC-002","Realism harness","Not started","Done","realism module present"],
+    ["S2.7","EPIC-002","MQTT/UNS simulator","Not started","Done","mqtt sim module"],
+    ["S2.5","EPIC-002","OPC UA simulator","Not started","Done","opcua sim module"],
+    ["S2.6","EPIC-002","SharePoint/S3 simulator","Not started","Done","documents sim module"],
+    ["S2.2","EPIC-002","PI Historian simulator","Not started","Done","pi sim module"],
+    ["S2.3","EPIC-002","Maximo simulator","Not started","Done","maximo sim module"],
+    ["S2.4","EPIC-002","SAP PM simulator","Not started","Done","sap_pm sim module"]
+  ]
+};
+
+const cls = s => s === "Done" ? "done" : s === "In progress" ? "prog" : s === "Deferred" ? "defer" : "none";
+const rank = s => s === "Done" ? 2 : s === "In progress" ? 1 : 0;
+const S = DATA.stories.map(r => ({id:r[0], epic:r[1], story:r[2], tracker:r[3], verified:r[4], note:r[5]}));
+
+function pct(arr, status){ return arr.length ? Math.round(arr.filter(x=>x.verified===status).length/arr.length*100) : 0; }
+function barHTML(arr){
+  const d=pct(arr,"Done"), p=pct(arr,"In progress");
+  return `<i style="width:${d}%;background:var(--done-bg)"></i><i style="width:${p}%;background:var(--prog-bg)"></i>`;
+}
+
+// Summary cards
+const trackA = S.filter(s=>s.epic!=="EPIC-002");
+const trackB = S.filter(s=>s.epic==="EPIC-002");
+const doneA = trackA.filter(s=>s.verified==="Done").length;
+const doneB = trackB.filter(s=>s.verified==="Done").length;
+const aheadCount = S.filter(s=>rank(s.verified)>rank(s.tracker)).length;
+document.getElementById("subline").textContent =
+  `Verified from code on ${DATA.generated} · compared against tracker dated ${DATA.trackerDate} · ${DATA.testSuite}`;
+document.getElementById("summary").innerHTML = [
+  card("Track A (Product)", `${doneA}<small>/${trackA.length} done</small>`, barHTML(trackA)),
+  card("Track B (Simulators)", `${doneB}<small>/${trackB.length} done</small>`, barHTML(trackB)),
+  card("Overall done", `${Math.round((doneA+doneB)/S.length*100)}<small>%</small>`, barHTML(S)),
+  card("Ahead of tracker", `${aheadCount}<small> stories</small>`, "")
+].join("");
+function card(lbl, num, bar){
+  return `<div class="card"><div class="lbl">${lbl}</div><div class="num">${num}</div>${bar?`<div class="bar">${bar}</div>`:""}</div>`;
+}
+
+// Epics
+const epicOrder = Object.keys(DATA.epics);
+document.getElementById("epics").innerHTML = epicOrder.map(e=>{
+  const arr = S.filter(s=>s.epic===e);
+  if(!arr.length) return "";
+  const done = arr.filter(s=>s.verified==="Done").length;
+  return `<div class="epic"><div class="top"><span class="name">${e} ${DATA.epics[e]}</span>
+    <span class="frac">${done}/${arr.length}</span></div>
+    <div class="ebar">${barHTML(arr)}</div></div>`;
+}).join("");
+
+// Table
+let fStatus="all", fDiff=false, fQ="";
+function render(){
+  const rows = S.filter(s=>{
+    if(fStatus!=="all" && s.verified!==fStatus) return false;
+    if(fDiff && !(rank(s.verified)>rank(s.tracker))) return false;
+    if(fQ){ const t=(s.id+s.story+s.note).toLowerCase(); if(!t.includes(fQ)) return false; }
+    return true;
+  });
+  document.getElementById("rows").innerHTML = rows.map(s=>{
+    const ahead = rank(s.verified)>rank(s.tracker);
+    return `<tr class="${ahead?'diff':''}">
+      <td class="sid">${s.id}</td>
+      <td>${s.story}</td>
+      <td class="note">${s.epic.replace('EPIC-','E')} ${DATA.epics[s.epic].split(' ')[0]}</td>
+      <td><span class="st ${cls(s.tracker)}">${s.tracker}</span></td>
+      <td><span class="st ${cls(s.verified)}">${s.verified}</span></td>
+      <td>${ahead?'<span class="diffflag">▲ ahead</span>':'<span class="note">=</span>'}</td>
+      <td class="note">${s.note}</td>
+    </tr>`;
+  }).join("");
+  document.getElementById("foot").textContent =
+    `Showing ${rows.length} of ${S.length} stories. Data embedded from PROGRESS.xlsx (verified state). Regenerate by asking Claude to refresh the dashboard.`;
+}
+document.getElementById("q").addEventListener("input", e=>{ fQ=e.target.value.toLowerCase(); render(); });
+document.getElementById("diffOnly").addEventListener("change", e=>{ fDiff=e.target.checked; render(); });
+document.querySelectorAll("#statusSeg button").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll("#statusSeg button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); fStatus=b.dataset.s; render();
+}));
+render();
+</script>
+</body>
+</html>

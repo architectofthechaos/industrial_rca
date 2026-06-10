@@ -1,0 +1,23 @@
+version: 1
+asset_id_seed: 0190d3c9-0000-7000-8000-000000000003
+external_ids:
+  pi_af_path: \\PI-DEMO\Refinery\P-102A
+  maximo_location: HTFD-P102A
+  sap_equipment: '10001240'
+  uns_segment: crude.p102a
+tag: P-102A
+service: injection pump
+iso14224_class: pump.centrifugal
+nameplate:
+  manufacturer: Sulzer
+  model: HPX-3100
+  serial: SN-2019-00310
+  rated_flow_m3h: 90
+  rated_head_m: 520
+  rated_speed_rpm: 2950
+  rated_power_kw: 110
+parent_unit: UNIT-102
+criticality: medium
+installed_at: '2018-06-12'
+template_class: centrifugal_pump
+template_version: v0.3.1

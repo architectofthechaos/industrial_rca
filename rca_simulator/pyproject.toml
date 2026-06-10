@@ -1,0 +1,49 @@
+[project]
+name = "rca-simulator"
+version = "0.0.1"
+description = "Source-side simulators for the RCA MVP (EPIC-002, Track B). Internal dev/CI only — not shipped."
+requires-python = ">=3.12"
+dependencies = [
+    # Fixture layer (S2.1) + HTTP simulators (S2.2/3/4/6)
+    "pydantic>=2",
+    "pyyaml",
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    # Real-protocol simulators
+    "asyncua",          # S2.5 OPC UA server
+    "paho-mqtt",        # S2.7 MQTT client/publisher
+    # Document search (S2.6)
+    "rank-bm25",
+    "minio",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "mypy",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rca_simulator"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    # dependency-level deprecation from starlette's TestClient using httpx
+    "ignore:Using `httpx` with `starlette.testclient`:Warning",
+]

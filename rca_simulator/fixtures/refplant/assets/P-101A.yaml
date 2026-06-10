@@ -1,0 +1,23 @@
+version: 1
+asset_id_seed: 0190d3c9-0000-7000-8000-000000000001
+external_ids:
+  pi_af_path: \\PI-DEMO\Refinery\P-101A
+  maximo_location: CRDU-P101A
+  sap_equipment: '10001234'
+  uns_segment: crude.p101a
+tag: P-101A
+service: charge pump
+iso14224_class: pump.centrifugal
+nameplate:
+  manufacturer: Sulzer
+  model: AHLSTAR-A22-50
+  serial: SN-2018-00471
+  rated_flow_m3h: 320
+  rated_head_m: 145
+  rated_speed_rpm: 3550
+  rated_power_kw: 185
+parent_unit: UNIT-101
+criticality: high
+installed_at: '2018-06-12'
+template_class: centrifugal_pump
+template_version: v0.3.1

@@ -1,0 +1,132 @@
+# Product workspace tasks (packages/*). The simulators have their own Taskfile in
+# rca_simulator/ — they stay a separate project (ADR-0012); we only talk to them over HTTP.
+# Requires go-task (https://taskfile.dev).
+version: "3"
+
+tasks:
+  default:
+    desc: List tasks
+    cmds: ["task --list"]
+    silent: true
+
+  test:
+    desc: Run the product workspace test suite (parity tests skip if their sim isn't up)
+    # sap_pm is parked for Phase 1 (Maximo is the sole CMMS source — sprint1_spec.md
+    # locked decisions). The package stays in the repo/workspace; its tests run only
+    # via the explicit parity:sap / parity:cross tasks.
+    cmds: ["uv run pytest -q --ignore=packages/connectors/sap_pm"]
+
+  lint:
+    desc: Lint + type-check the product packages
+    cmds:
+      - "uv run ruff check packages"
+      - >
+        uv run mypy packages/contracts/src packages/connector_sdk/src
+        packages/connectors/echo/src packages/connectors/pi/src
+        packages/connectors/sap_pm/src packages/connectors/maximo/src
+        packages/connectors/documents/src packages/connectors/opc_ua/src
+        packages/connectors/mqtt/src packages/mar/src
+
+  parity:pi:
+    desc: Run the PI connector parity test against the REAL PI simulator (starts + tears it down)
+    cmds:
+      - cd rca_simulator && task up:pi
+      - defer: cd rca_simulator && task down:pi
+      - sleep 4
+      - uv run pytest packages/connectors/pi/tests/test_pi_parity.py -q -p no:cacheprovider
+
+  parity:sap:
+    desc: Run the SAP PM connector parity test against the REAL SAP simulator (starts + tears it down)
+    cmds:
+      - cd rca_simulator && task up:sap
+      - defer: cd rca_simulator && task down:sap
+      - sleep 4
+      - uv run pytest packages/connectors/sap_pm/tests/test_sap_pm_parity.py -q -p no:cacheprovider
+
+  parity:maximo:
+    desc: Run the Maximo connector parity test against the REAL Maximo simulator (starts + tears down)
+    cmds:
+      - cd rca_simulator && task up:maximo
+      - defer: cd rca_simulator && task down:maximo
+      - sleep 4
+      - uv run pytest packages/connectors/maximo/tests/test_maximo_parity.py -q -p no:cacheprovider
+
+  parity:documents:
+    desc: Run the Documents connector parity test against the REAL docs simulator (starts + tears down)
+    cmds:
+      - cd rca_simulator && task up:documents
+      - defer: cd rca_simulator && task down:documents
+      - sleep 4
+      - uv run pytest packages/connectors/documents/tests/test_documents_parity.py -q -p no:cacheprovider
+
+  parity:opcua:
+    desc: Run the OPC UA connector parity test against the REAL OPC UA simulator (starts + tears down)
+    cmds:
+      - cd rca_simulator && task up:opcua
+      - defer: cd rca_simulator && task down:opcua
+      - sleep 5
+      - uv run pytest packages/connectors/opc_ua/tests/test_opcua_parity.py -q -p no:cacheprovider
+
+  parity:mqtt:
+    desc: Run the MQTT/UNS connector parity test against the REAL broker + publisher (starts + tears down)
+    cmds:
+      - cd rca_simulator && task up:mqtt
+      - defer: cd rca_simulator && task down:mqtt
+      - sleep 8
+      - uv run pytest packages/connectors/mqtt/tests/test_mqtt_parity.py -q -p no:cacheprovider
+
+  parity:cross:
+    desc: Cross-source contract test — SAP + Maximo unify under canonical WorkOrder (starts BOTH sims)
+    cmds:
+      - cd rca_simulator && task up:maximo
+      - cd rca_simulator && task up:sap
+      - defer: cd rca_simulator && task down:maximo
+      - defer: cd rca_simulator && task down:sap
+      - sleep 5
+      - uv run pytest packages/cross_source_tests/test_cmms_cross_source_parity.py -q -p no:cacheprovider
+
+  parity:all:
+    desc: Run EVERY connector parity test against its real simulator (sequential; each starts + tears down its own sim)
+    cmds:
+      - task: parity:pi
+      - task: parity:sap
+      - task: parity:maximo
+      - task: parity:documents
+      - task: parity:opcua
+      - task: parity:mqtt
+      - task: parity:cross
+
+  mar:db:up:
+    desc: Start the product Postgres (:5432)
+    cmds: ["docker compose -f infra/docker-compose.yaml up -d postgres"]
+
+  mar:db:down:
+    desc: Stop + remove the product Postgres
+    cmds: ["docker compose -f infra/docker-compose.yaml rm -sf postgres"]
+
+  mar:migrate:
+    desc: Apply MAR migrations to the running Postgres
+    cmds:
+      - cd packages/mar && uv run alembic upgrade head
+
+  mar:db:
+    desc: Start Postgres, migrate, run MAR DB-integration tests, tear down
+    cmds:
+      - task: mar:db:up
+      - defer: { task: mar:db:down }
+      - sleep 4
+      - task: mar:migrate
+      - uv run pytest packages/mar/tests/test_pg_repo.py -q -p no:cacheprovider
+
+  test:mar:
+    desc: Run hermetic MAR tests (no DB, no sim)
+    cmds:
+      - uv run pytest packages/mar -q --ignore=packages/mar/tests/test_pg_repo.py --ignore=packages/mar/tests/test_mar_wire_parity.py
+
+  parity:mar-wire:
+    desc: Resolver wire-in — MarResolver drives the Maximo connector against the REAL Maximo sim
+    cmds:
+      - cd rca_simulator && task up:maximo
+      - defer: cd rca_simulator && task down:maximo
+      - sleep 4
+      - uv run pytest packages/mar/tests/test_mar_wire_parity.py -q -p no:cacheprovider

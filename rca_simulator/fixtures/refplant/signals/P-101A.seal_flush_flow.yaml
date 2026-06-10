@@ -1,0 +1,26 @@
+version: 1
+asset_ref: P-101A
+role: seal_flush_flow
+display_name: P-101A Seal Flush Flow
+source_systems:
+- source: pi
+  raw_tag: PUMP_P101A.SEAL_FLUSH_FLOW
+  af_attribute: \\PI-DEMO\Refinery\P-101A|seal_flush_flow
+  units_raw: L/min
+- source: uns
+  raw_tag: spBv1.0/SITE-DEMO/DDATA/p-101a/seal_flush_flow
+  units_raw: L/min
+canonical_units: L-PER-MIN
+qudt_quantity_kind: VolumeFlowRate
+sampling:
+  expected_hz: 1.0
+  stored_compression_deviation: 0.05
+range:
+  operating_min: 4
+  operating_max: 12
+  alarm_lo: 2
+  alarm_hi: 15
+baseline:
+  mean: 8
+  stddev: 0.5
+  diurnal_amplitude: 0.3

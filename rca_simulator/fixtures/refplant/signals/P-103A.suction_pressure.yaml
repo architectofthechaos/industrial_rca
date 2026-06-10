@@ -1,0 +1,26 @@
+version: 1
+asset_ref: P-103A
+role: suction_pressure
+display_name: P-103A Suction Pressure
+source_systems:
+- source: pi
+  raw_tag: PUMP_P103A.SUCTION_PRESSURE
+  af_attribute: \\PI-DEMO\Refinery\P-103A|suction_pressure
+  units_raw: psig
+- source: uns
+  raw_tag: spBv1.0/SITE-DEMO/DDATA/p-103a/suction_pressure
+  units_raw: psig
+canonical_units: kPa
+qudt_quantity_kind: Pressure
+sampling:
+  expected_hz: 1.0
+  stored_compression_deviation: 0.5
+range:
+  operating_min: 150
+  operating_max: 400
+  alarm_lo: 100
+  alarm_hi: 500
+baseline:
+  mean: 250
+  stddev: 10
+  diurnal_amplitude: 8

@@ -1,0 +1,22 @@
+[project]
+name = "rca-connector-mqtt"
+version = "0.0.1"
+description = "MQTT/UNS connector (S13.7) — Sparkplug B background subscription -> canonical UNS read tools."
+requires-python = ">=3.12"
+dependencies = [
+    "rca-connector-sdk",
+    "rca-contracts",
+    "pydantic>=2",
+    "paho-mqtt>=2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rca_connector_mqtt"]
+
+[tool.uv.sources]
+rca-connector-sdk = { workspace = true }
+rca-contracts = { workspace = true }

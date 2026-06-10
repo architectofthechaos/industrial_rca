@@ -1,0 +1,8 @@
+doc_id: RCA-2025-014
+title: 'RCA: Mechanical seal failure on charge pump'
+doc_type: rca_report
+asset: P-101A
+scanned: false
+text: 'Root cause analysis. Mechanical seal failure due to dry running seal face in
+  abrasive service. Insufficient flush flow contributed. Corrective action: replace
+  seal cartridge and review flush plan. Vibration rose before the leak was confirmed.'

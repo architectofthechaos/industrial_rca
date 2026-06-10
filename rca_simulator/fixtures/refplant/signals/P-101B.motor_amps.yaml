@@ -1,0 +1,26 @@
+version: 1
+asset_ref: P-101B
+role: motor_amps
+display_name: P-101B Motor Amps
+source_systems:
+- source: pi
+  raw_tag: PUMP_P101B.MOTOR_AMPS
+  af_attribute: \\PI-DEMO\Refinery\P-101B|motor_amps
+  units_raw: A
+- source: uns
+  raw_tag: spBv1.0/SITE-DEMO/DDATA/p-101b/motor_amps
+  units_raw: A
+canonical_units: A
+qudt_quantity_kind: ElectricCurrent
+sampling:
+  expected_hz: 1.0
+  stored_compression_deviation: 0.2
+range:
+  operating_min: 120
+  operating_max: 200
+  alarm_lo: 100
+  alarm_hi: 230
+baseline:
+  mean: 165
+  stddev: 4
+  diurnal_amplitude: 6

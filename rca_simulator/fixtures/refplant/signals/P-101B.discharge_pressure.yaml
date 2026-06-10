@@ -1,0 +1,26 @@
+version: 1
+asset_ref: P-101B
+role: discharge_pressure
+display_name: P-101B Discharge Pressure
+source_systems:
+- source: pi
+  raw_tag: PUMP_P101B.DISCHARGE_PRESSURE
+  af_attribute: \\PI-DEMO\Refinery\P-101B|discharge_pressure
+  units_raw: psig
+- source: uns
+  raw_tag: spBv1.0/SITE-DEMO/DDATA/p-101b/discharge_pressure
+  units_raw: psig
+canonical_units: kPa
+qudt_quantity_kind: Pressure
+sampling:
+  expected_hz: 1.0
+  stored_compression_deviation: 0.5
+range:
+  operating_min: 800
+  operating_max: 2000
+  alarm_lo: 600
+  alarm_hi: 2400
+baseline:
+  mean: 1450
+  stddev: 35
+  diurnal_amplitude: 25

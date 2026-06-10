@@ -1,0 +1,161 @@
+# Taskfile for operating the EPIC-002 source simulators.
+# Requires go-task (https://taskfile.dev) — `brew install go-task`.
+# Two ways to run:
+#   * Docker (recommended for "all" + lifecycle):  task up   / task down
+#   * Local foreground (one sim per terminal):      task run:pi, task run:opcua, ...
+#
+# Run `task` (no args) to list everything.
+
+version: "3"
+
+vars:
+  COMPOSE: docker compose -f docker-compose.yaml
+  FIXTURE_PATH: fixtures/refplant
+  SCENARIO: seal_leak_progression
+
+tasks:
+  default:
+    desc: List all available tasks
+    cmds: ["task --list"]
+    silent: true
+
+  setup:
+    desc: Install dependencies into the uv venv
+    cmds: ["uv sync --extra dev"]
+
+  # ────────────────────────── Docker lifecycle ──────────────────────────
+
+  up:
+    desc: Build & START ALL simulators (detached)
+    cmds:
+      - "{{.COMPOSE}} up -d --build"
+      - 'echo "Up. PI:8001  Maximo:8002  SAP:8003  Docs:8004  OPCUA:4840  MQTT:1883  MinIO:9000"'
+
+  down:
+    desc: STOP & DESTROY all simulators (containers, network, volumes)
+    cmds: ["{{.COMPOSE}} down -v --remove-orphans"]
+
+  restart:
+    desc: Destroy and recreate all simulators
+    cmds:
+      - task: down
+      - task: up
+
+  ps:
+    desc: Show simulator container status
+    cmds: ["{{.COMPOSE}} ps"]
+
+  logs:
+    desc: 'Tail logs (all, or one: `task logs -- sim-pi`)'
+    cmds: ["{{.COMPOSE}} logs -f {{.CLI_ARGS}}"]
+
+  build:
+    desc: Build all simulator images without starting them
+    cmds: ["{{.COMPOSE}} build"]
+
+  # ─────────────────────── Start a single simulator (docker) ───────────────────────
+
+  up:pi:
+    desc: Start the PI Historian simulator (:8001)
+    cmds: ["{{.COMPOSE}} up -d --build sim-pi"]
+  up:maximo:
+    desc: Start the Maximo simulator (:8002)
+    cmds: ["{{.COMPOSE}} up -d --build sim-maximo"]
+  up:sap:
+    desc: Start the SAP PM simulator (:8003)
+    cmds: ["{{.COMPOSE}} up -d --build sim-sap-pm"]
+  up:documents:
+    desc: Start the SharePoint/Docs simulator (:8004)
+    cmds: ["{{.COMPOSE}} up -d --build sim-documents"]
+  up:opcua:
+    desc: Start the OPC UA simulator (:4840)
+    cmds: ["{{.COMPOSE}} up -d --build sim-opcua"]
+  up:mqtt:
+    desc: Start the MQTT broker + Sparkplug B publisher (:1883)
+    cmds: ["{{.COMPOSE}} up -d --build mosquitto sim-mqtt"]
+  up:minio:
+    desc: Start the MinIO S3 store (:9000/:9001)
+    cmds: ["{{.COMPOSE}} up -d minio"]
+
+  # ─────────────────────── Destroy a single simulator (docker) ───────────────────────
+
+  down:pi:        { desc: "Destroy the PI simulator",        cmds: ["{{.COMPOSE}} rm -sf sim-pi"] }
+  down:maximo:    { desc: "Destroy the Maximo simulator",    cmds: ["{{.COMPOSE}} rm -sf sim-maximo"] }
+  down:sap:       { desc: "Destroy the SAP PM simulator",    cmds: ["{{.COMPOSE}} rm -sf sim-sap-pm"] }
+  down:documents: { desc: "Destroy the Docs simulator",      cmds: ["{{.COMPOSE}} rm -sf sim-documents"] }
+  down:opcua:     { desc: "Destroy the OPC UA simulator",    cmds: ["{{.COMPOSE}} rm -sf sim-opcua"] }
+  down:mqtt:      { desc: "Destroy the MQTT broker + pub",   cmds: ["{{.COMPOSE}} rm -sf sim-mqtt mosquitto"] }
+
+  # ─────────────────────── Local foreground run (no docker) ───────────────────────
+  # Each runs in the foreground; open one terminal per simulator. Stop with Ctrl+C.
+
+  run:pi:
+    desc: Run PI simulator locally on :8001 (foreground)
+    env: { FIXTURE_PATH: "{{.FIXTURE_PATH}}", SCENARIO: "{{.SCENARIO}}" }
+    cmds: ["uv run uvicorn rca_simulator.pi.app:build_default_app --factory --host 0.0.0.0 --port 8001"]
+  run:maximo:
+    desc: Run Maximo simulator locally on :8002 (foreground)
+    env: { FIXTURE_PATH: "{{.FIXTURE_PATH}}" }
+    cmds: ["uv run uvicorn rca_simulator.maximo.app:build_default_app --factory --host 0.0.0.0 --port 8002"]
+  run:sap:
+    desc: Run SAP PM simulator locally on :8003 (foreground)
+    env: { FIXTURE_PATH: "{{.FIXTURE_PATH}}" }
+    cmds: ["uv run uvicorn rca_simulator.sap_pm.app:build_default_app --factory --host 0.0.0.0 --port 8003"]
+  run:documents:
+    desc: Run Docs simulator locally on :8004 (foreground)
+    env: { DOCS_PATH: "{{.FIXTURE_PATH}}/documents" }
+    cmds: ["uv run uvicorn rca_simulator.documents.app:build_default_app --factory --host 0.0.0.0 --port 8004"]
+  run:opcua:
+    desc: Run OPC UA simulator locally on :4840 (foreground)
+    env: { FIXTURE_PATH: "{{.FIXTURE_PATH}}", SCENARIO: "{{.SCENARIO}}" }
+    cmds: ["uv run python -m rca_simulator.opcua.server"]
+  run:mqtt:
+    desc: Run the Sparkplug B publisher locally (needs a broker — run `task broker:up` first)
+    env: { FIXTURE_PATH: "{{.FIXTURE_PATH}}", SCENARIO: "{{.SCENARIO}}", MQTT_BROKER: "localhost:1883" }
+    cmds: ["uv run python -m rca_simulator.mqtt.publisher"]
+
+  broker:up:
+    desc: Start just the MQTT broker (for local `run:mqtt`)
+    cmds: ["{{.COMPOSE}} up -d mosquitto"]
+  broker:down:
+    desc: Stop the standalone MQTT broker
+    cmds: ["{{.COMPOSE}} rm -sf mosquitto"]
+
+  # ────────────────────────── Quality / ops ──────────────────────────
+
+  test:
+    desc: Run the full test suite
+    cmds: ["uv run pytest -q"]
+
+  lint:
+    desc: Lint the package and tests
+    cmds: ["uv run ruff check rca_simulator tests"]
+
+  validate:
+    desc: Validate the reference-plant fixtures (SPEC-014 rules)
+    cmds:
+      - >
+        uv run python -c "from rca_simulator.fixtures.loader import load;
+        from rca_simulator.fixtures._validate import validate_or_raise;
+        validate_or_raise(load('{{.FIXTURE_PATH}}'));
+        print('fixtures OK')"
+
+  smoke:
+    desc: Live smoke test over real protocols against the RUNNING stack (`task up` first)
+    cmds: ["uv run python smoke/smoke.py {{.CLI_ARGS}}"]
+
+  smoke:ci:
+    desc: One-shot — bring the stack up, smoke-test it, then always destroy it
+    cmds:
+      - task: up
+      - defer: { task: down }
+      - "uv run python smoke/smoke.py"
+
+  health:
+    desc: Probe the HTTP simulators (run after `task up`)
+    cmds:
+      - 'curl -fsS http://localhost:8001/openapi.json >/dev/null && echo "PI        :8001 OK" || echo "PI        :8001 DOWN"'
+      - 'curl -fsS http://localhost:8002/openapi.json >/dev/null && echo "Maximo    :8002 OK" || echo "Maximo    :8002 DOWN"'
+      - 'curl -fsS http://localhost:8003/openapi.json >/dev/null && echo "SAP PM    :8003 OK" || echo "SAP PM    :8003 DOWN"'
+      - 'curl -fsS http://localhost:8004/openapi.json >/dev/null && echo "Documents :8004 OK" || echo "Documents :8004 DOWN"'
+    ignore_error: true

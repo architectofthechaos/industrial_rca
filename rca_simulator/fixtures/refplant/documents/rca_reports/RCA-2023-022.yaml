@@ -1,0 +1,8 @@
+doc_id: RCA-2023-022
+title: 'RCA: Motor overload trip on transfer pump'
+doc_type: rca_report
+asset: P-103A
+scanned: true
+text: 'Root cause analysis. Spurious stop from motor overload trip during a low-flow
+  process upset. Motor current rose above rated. Corrective action: review process
+  operating envelope.'

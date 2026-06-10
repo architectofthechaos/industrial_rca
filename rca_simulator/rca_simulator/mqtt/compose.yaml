@@ -1,0 +1,18 @@
+# S2.7 — standalone broker + Sparkplug B publisher (subset of the top-level compose).
+# Run from the app root:  docker compose -f rca_simulator/mqtt/compose.yaml up
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  publisher:
+    build:
+      context: ../..
+      dockerfile: rca_simulator/mqtt/Dockerfile
+    depends_on: [mosquitto]
+    environment:
+      MQTT_BROKER: mosquitto:1883
+      FIXTURE_PATH: /app/fixtures/refplant
+      SCENARIO: seal_leak_progression
