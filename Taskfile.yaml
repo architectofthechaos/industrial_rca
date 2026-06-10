@@ -25,7 +25,7 @@ tasks:
         packages/connectors/echo/src packages/connectors/pi/src
         packages/connectors/sap_pm/src packages/connectors/maximo/src
         packages/connectors/documents/src packages/connectors/opc_ua/src
-        packages/connectors/mqtt/src packages/mar/src
+        packages/connectors/mqtt/src packages/mar/src packages/kg/src
 
   parity:pi:
     desc: Run the PI connector parity test against the REAL PI simulator (starts + tears it down)

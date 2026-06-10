@@ -1,17 +1,13 @@
 [project]
-name = "rca-mar"
+name = "rca-kg"
 version = "0.0.1"
-description = "Master Asset Registry (EPIC-012) — canonical asset identity + resolution + MCP tools."
+description = "Knowledge Graph (Sprint 2a) — ISO 14224 ontology + plant hierarchy skeleton + KG MCP tools."
 requires-python = ">=3.12"
 dependencies = [
     "rca-contracts",
     "rca-connector-sdk",
-    "rca-kg",
     "pydantic>=2",
-    "sqlalchemy[asyncio]>=2",
-    "asyncpg>=0.29",
-    "alembic>=1.13",
-    "pyyaml>=6",
+    "neo4j>=5",
     "fastmcp>=3",
 ]
 
@@ -20,9 +16,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/rca_mar"]
+packages = ["src/rca_kg"]
 
 [tool.uv.sources]
 rca-contracts = { workspace = true }
 rca-connector-sdk = { workspace = true }
-rca-kg = { workspace = true }

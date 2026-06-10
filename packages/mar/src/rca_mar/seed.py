@@ -6,7 +6,6 @@ Each register entry carries a `unit:` slug consumed solely to mint the canonical
 """
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
@@ -14,6 +13,7 @@ from uuid import UUID
 import yaml
 
 from rca_contracts import AssetDescriptor
+from rca_kg.slugs import slug as _slug
 
 from .models import SOURCE_SYSTEM_CATEGORIES
 from .repository import AliasRow, AssetRepository
@@ -21,11 +21,6 @@ from .repository import AliasRow, AssetRepository
 # Register criticality words -> canonical A/B/C/D (SPEC-011 design decision).
 _CRITICALITY = {"high": "A", "medium": "C", "low": "D"}
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
-
-
-def _slug(value: str) -> str:
-    """Lowercased, hyphen-separated canonical-id segment (e.g. 'P-101A' -> 'p-101a')."""
-    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
 def _descriptor(tenant: UUID, *, asset_id, canonical_id, plant_id, tag, iso_class, iso_level,
