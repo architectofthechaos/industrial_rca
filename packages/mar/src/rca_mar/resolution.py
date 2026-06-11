@@ -1,12 +1,13 @@
 """The 4-step asset-resolution algorithm (SPEC-011). Pure logic over an AssetRepository.
 
-Resolution-method vocabulary (Phase 1 spec §2.4) — reported in
-AssetResolution.mapping_source (== spec `resolution_method`):
-  - 'exact_match'       active-alias short-circuit (step 1)
-  - 'cross_walk'        same external_id known under another source (step 2)
-  - 'rule:tag_pattern'  regex tag heuristic (step 3)
-  - 'manual'            human-confirmed (written by review tooling, not here)
-  - 'llm_v<n>'          LLM classifier placeholder — not used until Sprint 3
+Resolution-method vocabulary (Phase 1 spec §2.4, amended Sprint 2a §1.5) —
+reported in AssetResolution.mapping_source (== spec `resolution_method`):
+  - 'exact_match'  active-alias short-circuit (step 1)
+  - 'cross_walk'   same external_id known under another source (step 2)
+  - 'rule:<id>'    pattern-rule registry hit (step 3) — the matching rule's id
+                   from pattern_rules.yaml, e.g. 'rule:pump_p_tag'
+  - 'manual'       human-confirmed (written by review tooling, not here)
+  - 'llm_v<n>'     LLM classifier placeholder — not used until Sprint 3
 Seed-loaded rows keep mapping_source='authoritative_import' (provenance of the
 import); resolving against them still REPORTS 'exact_match'.
 
@@ -26,7 +27,6 @@ the unresolved queue (source_system_type is NOT NULL and is never guessed).
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from uuid import UUID
@@ -35,10 +35,10 @@ from rca_contracts import ResolveStatus
 
 from .config import auto_accept_threshold
 from .models import SOURCE_SYSTEM_CATEGORIES
+from .pattern_rules import PatternRule, apply_rules, load_rules
 from .repository import AliasRow, AssetRepository
 
 _CROSSWALK_CONFIDENCE = 0.85
-_REGEX_CONFIDENCE = 0.70
 
 
 @dataclass(frozen=True)
@@ -48,14 +48,6 @@ class AssetResolution:
     confidence: float
     mapping_source: str
     alternatives: list[UUID] = field(default_factory=list)
-
-
-def _extract_tag(external_id: str, patterns: list[str]) -> str | None:
-    for pat in patterns:
-        m = re.search(pat, external_id)
-        if m and m.groupdict().get("tag"):
-            return m.group("tag")
-    return None
 
 
 async def _persist_pending_review(repo: AssetRepository, tenant: UUID, source: str,
@@ -111,7 +103,7 @@ async def resolve_asset(
     *,
     valid_at: datetime | None = None,
     min_confidence: float | None = None,
-    regex_patterns: list[str] | None = None,
+    rules: list[PatternRule] | None = None,
 ) -> AssetResolution:
     if min_confidence is None:
         min_confidence = auto_accept_threshold()
@@ -151,17 +143,18 @@ async def resolve_asset(
         return AssetResolution("ambiguous", None, _CROSSWALK_CONFIDENCE, "cross_walk",
                                alternatives=sorted(distinct, key=str))
 
-    # Step 3: regex heuristic -> match by tag
-    tag = _extract_tag(external_id, regex_patterns or [])
-    if tag:
-        asset = await repo.find_asset_by_tag(tenant, tag)
+    # Step 3: deterministic pattern rules (Sprint 2a §1.5) -> match by tag. The candidate
+    # tag is the rule pattern's named group 'tag' when defined, else the full matched text;
+    # method/mapping_source is the matching rule's id (e.g. 'rule:pump_p_tag').
+    match = apply_rules(external_id, "tag", rules=rules if rules is not None else load_rules())
+    if match is not None:
+        asset = await repo.find_asset_by_tag(tenant, match.matched)
         if asset is not None:
-            status = "resolved" if _REGEX_CONFIDENCE >= min_confidence else "unresolved"
+            status = "resolved" if match.confidence >= min_confidence else "unresolved"
             if status == "unresolved":
                 await _persist_pending_review(repo, tenant, source, external_id,
-                                              asset.asset_id, _REGEX_CONFIDENCE,
-                                              "rule:tag_pattern")
-            return AssetResolution(status, asset.asset_id, _REGEX_CONFIDENCE, "rule:tag_pattern")
+                                              asset.asset_id, match.confidence, match.rule_id)
+            return AssetResolution(status, asset.asset_id, match.confidence, match.rule_id)
 
     # Step 4: unresolved — no candidate at all; deprecated queue keeps working
     await repo.upsert_unresolved(tenant, source, external_id, {"reason": "no_match"})

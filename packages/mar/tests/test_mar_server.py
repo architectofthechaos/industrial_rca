@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from fastmcp import Client
 from rca_contracts import AssetDescriptor, ResolveAssetOutput, ToolResponse
 
+from rca_mar.pattern_rules import PatternRule
 from rca_mar.repository import InMemoryRepository
 from rca_mar.seed import seed_from_register
 from rca_mar.server import make_mar_mcp
@@ -63,6 +64,24 @@ async def test_resolve_env_threshold_honored(monkeypatch):
                                                     "source_system": "pi_af"}}),
                      ResolveAssetOutput)
         assert res.error is None and res.data.status == "resolved"
+        assert res.data.canonical_id == P101A_CANONICAL
+
+
+async def test_resolve_via_injected_pattern_rule_reports_rule_id():
+    # make_mar_mcp(rules=...) threads through to resolution step 3: 'P-101A' is not an
+    # alias or crosswalk candidate, so the injected rule binds it by tag and the
+    # reported mapping_source is the rule's id (0.95 >= 0.92 default gate -> resolved)
+    repo = InMemoryRepository()
+    await seed_from_register(repo, REGISTER)
+    rule = PatternRule(id="rule:test_pump_tag", pattern=r"^P-\d{3}[A-Z]?$",
+                       iso14224_class="pump.centrifugal", confidence=0.95, applies_to="tag")
+    async with Client(make_mar_mcp(repo=repo, tenant_id=TENANT, rules=[rule])) as c:
+        res = _parse(await c.call_tool("assets.resolve",
+                                       {"request": {"external_id": "P-101A",
+                                                    "source_system": "uns"}}),
+                     ResolveAssetOutput)
+        assert res.error is None and res.data.status == "resolved"
+        assert res.data.mapping_source == "rule:test_pump_tag"
         assert res.data.canonical_id == P101A_CANONICAL
 
 

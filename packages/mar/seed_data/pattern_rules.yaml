@@ -1,0 +1,15 @@
+# Deterministic pattern rules (Sprint 2a §1.5) — the single source of truth for
+# tag/template heuristics. Consumed by the AF crawler (class assignment) and the
+# MAR resolution layer (step-3 rule matching). Provenance is written as rule:<id>.
+version: 1
+rules:
+  - id: rule:pump_p_tag
+    pattern: '^P-\d{3}[A-Z]?$'
+    iso14224_class: pump.centrifugal
+    confidence: 0.85
+    applies_to: tag
+  - id: rule:pump_template_name
+    pattern: '^centrifugal_pump$'
+    iso14224_class: pump.centrifugal
+    confidence: 0.95
+    applies_to: template

@@ -23,6 +23,7 @@ from rca_contracts import (
     ToolResponse,
 )
 
+from .pattern_rules import PatternRule
 from .repository import AssetRepository
 from .resolution import resolve_asset
 
@@ -60,7 +61,7 @@ def _ok(envelope, data, *, tool, source_query, record_count, raw_tags):
 
 
 def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
-                 regex_patterns: list[str] | None = None) -> FastMCP:
+                 rules: list[PatternRule] | None = None) -> FastMCP:
     mcp = build_server("mar")
 
     @mcp.tool(name="assets.resolve")
@@ -69,7 +70,7 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
         try:
             r = await resolve_asset(repo, request.external_id, request.source_system, tenant_id,
                                     valid_at=request.time, min_confidence=request.min_confidence,
-                                    regex_patterns=regex_patterns)
+                                    rules=rules)
             asset = await repo.get_asset(tenant_id, r.asset_id) if r.asset_id else None
             alts = [a for a in
                     [await repo.get_asset(tenant_id, x) for x in r.alternatives] if a is not None]
