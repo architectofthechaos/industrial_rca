@@ -1,16 +1,13 @@
 """Live KG seed test against a real Neo4j (Sprint 2a Task 4).
 
-Skips when the bolt port from `rca_kg.config.kg_uri()` is unreachable (run `task
-kg:db:up`). Does NOT wipe the database — counts by the specific seed labels only.
-The seed holds 122 ontology nodes (see test_seed_content.py); we assert the sprint
-plan budget of >=120 here since a shared dev DB may hold extras.
+Skips via the shared conftest reachability marker (run `task kg:db:up`). Does NOT
+wipe the database — counts by the specific seed labels only. The seed holds 122
+ontology nodes (see test_seed_content.py); we assert the sprint plan budget of
+>=120 here since a shared dev DB may hold extras.
 """
 from __future__ import annotations
 
-import socket
-from urllib.parse import urlparse
-
-import pytest
+from conftest import requires_kg
 
 from rca_kg import seed
 from rca_kg.migrate import DEFAULT_MIGRATIONS_DIR, apply_all
@@ -26,19 +23,7 @@ PATH_QUERY = (
 )
 
 
-def _kg_reachable() -> bool:
-    from rca_kg.config import kg_uri
-
-    try:
-        u = urlparse(kg_uri())
-        with socket.create_connection((u.hostname or "127.0.0.1", u.port or 7687), timeout=1):
-            return True
-    except Exception:
-        return False
-
-
-pytestmark = pytest.mark.skipif(not _kg_reachable(),
-                                reason="Neo4j not reachable (run `task kg:db:up`)")
+pytestmark = requires_kg
 
 
 def _count(session, query: str) -> int:

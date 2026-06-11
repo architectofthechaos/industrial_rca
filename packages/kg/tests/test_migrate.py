@@ -1,17 +1,16 @@
 """Tests for the forward-only Cypher migration runner (Sprint 2a Task 3).
 
-Hermetic tests cover statement splitting, `// @include` resolution, and migration
-discovery. The live test follows the socket-reachability skip pattern from
-packages/mar/tests/test_pg_repo.py (run `task kg:db:up` first).
+Hermetic tests cover statement splitting, `// @include` resolution (including cycle
+detection), and migration discovery. The live test skips via the shared conftest
+reachability marker (run `task kg:db:up` first).
 """
 from __future__ import annotations
 
-import socket
 import uuid
 from pathlib import Path
-from urllib.parse import urlparse
 
 import pytest
+from conftest import requires_kg
 
 from rca_kg.migrate import apply_all, discover, read_statements
 
@@ -50,7 +49,32 @@ def test_read_statements_resolves_include_relative_to_file(tmp_path: Path) -> No
     assert stmts == ["MERGE (s:Seeded {id: 'one'})", "MERGE (s:Seeded {id: 'two'})"]
 
 
-def test_discover_sorts_by_leading_number_and_ignores_nonmatching(tmp_path: Path) -> None:
+def test_read_statements_detects_include_cycles(tmp_path: Path) -> None:
+    (tmp_path / "0001_a.cypher").write_text(
+        "// @include 0002_b.cypher\nRETURN 1;\n", encoding="utf-8"
+    )
+    (tmp_path / "0002_b.cypher").write_text(
+        "// @include 0001_a.cypher\nRETURN 2;\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="include cycle via"):
+        read_statements(tmp_path / "0001_a.cypher")
+
+
+def test_read_statements_allows_diamond_includes(tmp_path: Path) -> None:
+    # 0001 includes b and c, both include shared: a diamond, NOT a cycle
+    (tmp_path / "shared.cypher").write_text("MERGE (s:Shared {id: 'x'});\n", encoding="utf-8")
+    (tmp_path / "b.cypher").write_text("// @include shared.cypher\n", encoding="utf-8")
+    (tmp_path / "c.cypher").write_text("// @include shared.cypher\n", encoding="utf-8")
+    (tmp_path / "0001_diamond.cypher").write_text(
+        "// @include b.cypher\n// @include c.cypher\n", encoding="utf-8"
+    )
+    assert read_statements(tmp_path / "0001_diamond.cypher") == [
+        "MERGE (s:Shared {id: 'x'})", "MERGE (s:Shared {id: 'x'})"]
+
+
+def test_discover_sorts_by_leading_number_and_ignores_nonmatching(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "0002_b.cypher").write_text("RETURN 2;", encoding="utf-8")
     (tmp_path / "0001_a.cypher").write_text("RETURN 1;", encoding="utf-8")
     (tmp_path / "README.md").write_text("not a migration", encoding="utf-8")
@@ -59,23 +83,14 @@ def test_discover_sorts_by_leading_number_and_ignores_nonmatching(tmp_path: Path
     assert [m.id for m in migrations] == ["0001_a", "0002_b"]
     assert [m.number for m in migrations] == [1, 2]
     assert [m.path.name for m in migrations] == ["0001_a.cypher", "0002_b.cypher"]
+    err = capsys.readouterr().err  # misnamed .cypher warns; README.md stays silent
+    assert "notes.cypher" in err and "README.md" not in err
 
 
 # ------------------------------------------------------------------------------- live
 
 
-def _kg_reachable() -> bool:
-    from rca_kg.config import kg_uri
-
-    try:
-        u = urlparse(kg_uri())
-        with socket.create_connection((u.hostname or "127.0.0.1", u.port or 7687), timeout=1):
-            return True
-    except Exception:
-        return False
-
-
-@pytest.mark.skipif(not _kg_reachable(), reason="Neo4j not reachable (run `task kg:db:up`)")
+@requires_kg
 def test_apply_all_is_idempotent_and_records_applied_ids(tmp_path: Path) -> None:
     from rca_kg.config import kg_database, make_driver
 

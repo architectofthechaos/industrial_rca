@@ -6,6 +6,7 @@ containing file). Applied migration ids are recorded on a `_migrations` singleto
 so re-running is a no-op. Forward-only: there are no down migrations; statements are run
 one transaction each (Neo4j forbids mixing schema and data writes in one transaction),
 so every statement must be idempotent (`IF NOT EXISTS` / `MERGE`).
+Not safe for concurrent runners; dev-mode assumes a single writer.
 
 Run: `uv run python -m rca_kg.migrate [migrations_dir]` (or `task kg:migrate`).
 """
@@ -43,27 +44,43 @@ class Migration:
 def discover(migrations_dir: Path) -> list[Migration]:
     """List migrations in `migrations_dir`, sorted by leading number.
 
-    Only files named `NNNN_name.cypher` count; anything else (README, seed fragments,
-    editor droppings) is silently ignored rather than rejected.
+    Only files named `NNNN_name.cypher` count; non-cypher files (README, editor
+    droppings) are silently ignored, but a `.cypher` file that misses the pattern
+    gets a stderr warning — it is probably a misnamed migration.
     """
     migrations = []
     for path in migrations_dir.iterdir():
         m = _MIGRATION_FILE_RE.match(path.name)
         if m:
             migrations.append(Migration(number=int(m.group(1)), id=path.stem, path=path))
+        elif path.suffix == ".cypher":
+            print(f"warning: ignoring {path.name}: does not match NNNN_name.cypher",
+                  file=sys.stderr)
     return sorted(migrations, key=lambda mig: (mig.number, mig.id))  # id tie-breaks duplicates
 
 
-def _resolve_text(path: Path) -> str:
-    """Read `path`, replacing each `// @include <relpath>` line with that file's content."""
-    lines: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        include = _INCLUDE_RE.match(line)
-        if include:
-            lines.append(_resolve_text((path.parent / include.group(1)).resolve()))
-        else:
-            lines.append(line)
-    return "\n".join(lines)
+def _resolve_text(path: Path, seen: set[Path] | None = None) -> str:
+    """Read `path`, replacing each `// @include <relpath>` line with that file's content.
+
+    `seen` tracks the current include stack: re-entering a file mid-expansion is a
+    cycle and raises (diamond includes — the same file via two siblings — are fine).
+    """
+    seen = set() if seen is None else seen
+    resolved = path.resolve()
+    if resolved in seen:
+        raise ValueError(f"include cycle via {path}")
+    seen.add(resolved)
+    try:
+        lines: list[str] = []
+        for line in resolved.read_text(encoding="utf-8").splitlines():
+            include = _INCLUDE_RE.match(line)
+            if include:
+                lines.append(_resolve_text((resolved.parent / include.group(1)).resolve(), seen))
+            else:
+                lines.append(line)
+        return "\n".join(lines)
+    finally:
+        seen.discard(resolved)
 
 
 def read_statements(path: Path) -> list[str]:
