@@ -27,7 +27,7 @@ tasks:
         packages/connectors/documents/src packages/connectors/opc_ua/src
         packages/connectors/mqtt/src packages/connectors/asset_hierarchy/src
         packages/mar/src packages/kg/src packages/connections_api/src
-        packages/onboarding/src
+        packages/onboarding/src packages/llm/src packages/agents/src
 
   parity:pi:
     desc: Run the tag/operator_log parity tests against the REAL PI simulator (starts + tears it down)
