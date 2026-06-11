@@ -212,6 +212,37 @@ async def test_get_hierarchy_unknown_root_is_not_found():
         assert res.error is not None and res.error.code == "not_found"
 
 
+async def test_get_hierarchy_rejects_out_of_bounds_max_depth():
+    async with _client() as c:
+        for depth in (0, 17):
+            res = _parse(await c.call_tool(
+                "kg.get_hierarchy", {"request": {"plant_id": "refinery-gc", "max_depth": depth}}),
+                HierarchyNode)
+            assert res.error is not None and res.error.code == "validation_failed"
+
+
+async def test_find_path_rejects_out_of_bounds_max_hops():
+    async with _client() as c:
+        for hops in (0, 17):
+            res = _parse(await c.call_tool(
+                "kg.find_path",
+                {"request": {"from_id": "failure-mode:vib",
+                             "to_id": "component:mechanical-seal", "max_hops": hops}}),
+                list[PathSegment])
+            assert res.error is not None and res.error.code == "validation_failed"
+
+
+async def test_list_failure_modes_unknown_class_is_empty_success():
+    async with _client() as c:
+        res = _parse(await c.call_tool(
+            "kg.list_failure_modes_for_class",
+            {"request": {"equipment_class_id": "equipment-class:does-not-exist"}}),
+            list[FailureModeEntry])
+        assert res.error is None
+        assert res.data == []
+        assert res.provenance is not None and res.provenance.record_count == 0
+
+
 async def test_find_path_vib_to_mechanical_seal_is_ordered_segments():
     async with _client() as c:
         res = _parse(await c.call_tool(
