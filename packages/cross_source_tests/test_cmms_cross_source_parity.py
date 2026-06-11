@@ -1,4 +1,4 @@
-"""S13.8 cross-source parity: SAP PM and Maximo unify under the canonical WorkOrder.
+"""Cross-source parity: SAP PM and Maximo unify under the canonical WorkOrder.
 
 Proves the central promise of the connector layer — that two different CMMS sources,
 talking different protocols (SAP OData v2 vs Maximo OSLC) with different identifiers
@@ -7,8 +7,14 @@ Maximo failurecode) — both translate to the SAME canonical `WorkOrder` shape f
 SAME logical asset (P-101A), and converge on the SAME ISO-14224 failure code (`LEK`)
 for the seal-leak event that appears in both systems.
 
-Requires BOTH the Maximo (:8002) and SAP (:8003) simulators; skips otherwise. Talks
-only HTTP — never imports rca_simulator. Run with: `task parity:cross`.
+The Maximo leg now drives the **entity** `work_order` MCP (`make_work_order_mcp`):
+ConnectionRouter resolves the cmms connection from the canonical_id's plant, and a
+StaticAssetGateway maps the canonical_id to the Maximo location. The SAP leg still uses
+`make_sap_mcp` + `sap_pm.get_notifications` — sap_pm is parked (excluded from `task test`),
+but this cross-source test historically exercises it and runs only under `task parity:cross`.
+
+Requires BOTH the Maximo (:8002) and SAP (:8003) simulators; skips otherwise. Talks only
+HTTP — never imports rca_simulator (ADR-0012). Run with: `task parity:cross`.
 """
 import json
 import os
@@ -17,6 +23,8 @@ from uuid import uuid4
 import httpx
 import pytest
 from fastmcp import Client
+from rca_connector_maximo.server import make_work_order_mcp
+from rca_connector_sap_pm.server import make_sap_mcp
 from rca_connector_sdk import (
     ConnectionInfo,
     SourceBinding,
@@ -25,27 +33,16 @@ from rca_connector_sdk import (
 )
 from rca_contracts import ToolResponse, WorkOrder
 
-# NOTE: this whole module is parked until Track 3 Task 6 rewrites the SAP connector as a
-# work_order entity MCP. Task 5 replaced the Maximo make_maximo_mcp (SourceBinding-based)
-# with make_work_order_mcp (ConnectionRouter + AssetGateway), but SAP still ships the old
-# make_sap_mcp + sap_pm.* tools, so a cross-source comparison can't be wired coherently yet.
-# Skip cleanly at import — Task 6 reinstates this test against both work_order MCPs. (The
-# helpers below are kept, adapted to the new Maximo API, to document the eventual shape.)
-pytest.skip(
-    "rewritten in Track 3 Task 6 (cross-source parity over two work_order MCPs)",
-    allow_module_level=True,
-)
-
-from rca_connector_maximo.server import make_work_order_mcp  # noqa: E402
-from rca_connector_sap_pm.server import make_sap_mcp  # noqa: E402
-
 MAXIMO_SIM_URL = os.environ.get("MAXIMO_SIM_URL", "http://127.0.0.1:8002")
 SAP_SIM_URL = os.environ.get("SAP_SIM_URL", "http://127.0.0.1:8003")
 
-# One canonical asset (P-101A) seen by both CMMS systems under different source handles.
-ASSET = uuid4()
+# One logical asset (P-101A) seen by both CMMS systems under different source handles.
+# The two legs key the asset differently by design: the entity work_order MCP stamps a
+# deterministic asset_id from the canonical_id (no MAR-bound UUID at this altitude), while
+# the SAP leg is asset-scoped on an explicit AssetID. The point of the test is that BOTH
+# emit canonical WorkOrders for the same logical pump and converge on the same ISO code.
 CANONICAL = "asset:refinery-gc:unit-101:p-101a"
-PLANT = "refinery-gc"
+SAP_ASSET = uuid4()
 MAXIMO_LOC = "CRDU-P101A"   # P-101A's maximo_location
 SAP_EQUNR = "10001234"      # P-101A's sap_equipment
 SEAL_LEAK = "seal leak confirmed"   # substring of the shared seal-leak narrative
@@ -70,9 +67,10 @@ def _parse(result) -> "ToolResponse[list[WorkOrder]]":
 
 
 async def _maximo_workorders() -> list[WorkOrder]:
+    # Entity work_order MCP: router -> cmms connection; gateway maps canonical_id -> location.
     router = StaticConnectionRouter([ConnectionInfo(
-        connection_id="refinery-gc.cmms.maximo-main", plant_id=PLANT, category="cmms",
-        connector_type="maximo", base_url=MAXIMO_SIM_URL, extra_config={},
+        connection_id="refinery-gc.cmms.maximo-main", plant_id="refinery-gc", category="cmms",
+        connector_type="maximo", base_url=MAXIMO_SIM_URL,
     )])
     assets = StaticAssetGateway(handles={(CANONICAL, "cmms"): MAXIMO_LOC})
     mcp = make_work_order_mcp(router=router, assets=assets)
@@ -84,12 +82,12 @@ async def _maximo_workorders() -> list[WorkOrder]:
 
 
 async def _sap_notifications() -> list[WorkOrder]:
-    bindings = {(ASSET, "sap_pm"): SourceBinding(handle=SAP_EQUNR, raw_unit="n/a")}
+    bindings = {(SAP_ASSET, "sap_pm"): SourceBinding(handle=SAP_EQUNR, raw_unit="n/a")}
     async with httpx.AsyncClient(base_url=SAP_SIM_URL) as http:
         mcp = make_sap_mcp(http_client=http, bindings=bindings)
         async with Client(mcp) as client:
             resp = _parse(await client.call_tool(
-                "sap_pm.get_notifications", {"request": {"asset_id": str(ASSET)}}))
+                "sap_pm.get_notifications", {"request": {"asset_id": str(SAP_ASSET)}}))
     assert resp.error is None, resp.error
     return resp.data
 
@@ -104,10 +102,12 @@ async def test_both_cmms_sources_unify_under_canonical_workorder():
     maximo = await _maximo_workorders()
     sap = await _sap_notifications()
 
-    # Both sources produce canonical WorkOrders for the SAME asset, each correctly labeled.
+    # Both sources produce canonical WorkOrders for the SAME logical asset, each correctly
+    # labeled by its source_system. Each leg is internally consistent on its own asset_id.
     assert maximo and sap
-    assert all(w.source_system == "maximo" and str(w.asset_id) == str(ASSET) for w in maximo)
-    assert all(w.source_system == "sap_pm" and str(w.asset_id) == str(ASSET) for w in sap)
+    assert all(w.source_system == "maximo" for w in maximo)
+    assert all(w.source_system == "sap_pm" and str(w.asset_id) == str(SAP_ASSET) for w in sap)
+    assert len({str(w.asset_id) for w in maximo}) == 1   # one logical asset on the maximo leg
     assert all(w.opened_at.tzinfo is not None for w in maximo + sap)   # both UTC-normalized
 
     # The seal-leak event exists in BOTH systems and converges on the same canonical

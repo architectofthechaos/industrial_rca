@@ -50,7 +50,7 @@ async def test_crawler_discovery_matches_rekeyed_register_for_both_seeded_assets
 
 
 async def test_resolve_by_maximo_id_lands_on_the_asset_the_crawler_proposes():
-    # cross-source acceptance: assets.resolve via the Maximo external_id binds the SAME
+    # cross-source acceptance: asset.resolve via the Maximo external_id binds the SAME
     # asset the crawler proposes for P-101A
     repo, result = await _seeded_repo_and_crawl()
     resolution = await resolve_asset(repo, "CRDU-P101A", "maximo", TENANT)
