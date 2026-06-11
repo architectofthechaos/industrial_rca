@@ -29,12 +29,12 @@ tasks:
         packages/mar/src packages/kg/src
 
   parity:pi:
-    desc: Run the PI connector parity test against the REAL PI simulator (starts + tears it down)
+    desc: Run the tag/operator_log parity tests against the REAL PI simulator (starts + tears it down)
     cmds:
       - cd rca_simulator && task up:pi
       - defer: cd rca_simulator && task down:pi
       - sleep 4
-      - uv run pytest packages/connectors/pi/tests/test_pi_parity.py -q -p no:cacheprovider
+      - uv run pytest packages/connectors/pi/tests/test_tag_parity.py -q -p no:cacheprovider
 
   parity:asset_hierarchy:
     desc: Run the asset_hierarchy crawler tests against the REAL PI simulator (AF endpoints live there)

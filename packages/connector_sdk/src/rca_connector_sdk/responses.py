@@ -19,13 +19,21 @@ from .provenance import ProvenanceAccumulator
 
 def ok_response(data: Any, *, tool: str, version: str, source: str, source_query: str,
                 record_count: int, raw_tags: list[str] | None = None,
-                notes: str | None = None) -> ToolResponse[Any]:
-    """Build provenance (queried_at=now, response_id=uuid4) and return ToolResponse.ok."""
+                notes: str | None = None,
+                connection_id: str | None = None) -> ToolResponse[Any]:
+    """Build provenance (queried_at=now, response_id=uuid4) and return ToolResponse.ok.
+
+    ``connection_id`` records which configured connection served the data (2b: every
+    entity response carries provenance.connection_id); the kg/asset_hierarchy callers
+    leave it None.
+    """
     prov = ProvenanceAccumulator()
     prov.record(source_query=source_query, record_count=record_count,
                 raw_tags=raw_tags, notes=notes)
     provenance = prov.build(tool_name=tool, tool_version=version, source=source,
                             queried_at=datetime.now(timezone.utc), response_id=uuid4())
+    if connection_id is not None:
+        provenance = provenance.model_copy(update={"connection_id": connection_id})
     return ToolResponse.ok(data, provenance)
 
 
