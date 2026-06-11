@@ -162,3 +162,40 @@ class AssetAliasUnresolved(Base):
     occurrence_count: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
     last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     candidate_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
+class OnboardingRun(Base):
+    """Persistent run record for a Temporal OnboardingWorkflow execution (Sprint 2b §2.5).
+
+    The workflow writes a row at start (status='running') and updates it when the
+    workflow terminates (status='completed' | 'failed' | 'cancelled'). The onboarding
+    package uses the MAR engine/session directly so that onboarding_runs stays in the
+    same Alembic migration chain as connections and asset_aliases.
+
+    `connection_ids` is the list of connection_id strings that were requested for this
+    run (null = all active connections for the plant at run time).
+    `per_category_results` maps each category to a short result string
+    (e.g. 'ok', 'skipped:connection_unhealthy').
+    `counts` holds aggregate numeric results:
+        {assets_new, assets_updated, assets_decommissioned,
+         bindings_pending_review, hierarchy_nodes_upserted}.
+    `errors` is a list of structured error dicts.
+    """
+
+    __tablename__ = "onboarding_runs"
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(Text, nullable=False)
+    plant_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    # list of connection_id strings; null = all active for the plant
+    connection_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # running / completed / failed / cancelled
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    per_category_results: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    errors: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
+    __table_args__ = (
+        Index("ix_onboarding_runs_plant_status", "plant_id", "status"),
+    )

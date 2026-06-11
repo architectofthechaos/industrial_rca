@@ -164,3 +164,29 @@ tasks:
     desc: Serve the Connections REST API (:8200, OpenAPI at /docs) over the configured Postgres MAR
     cmds:
       - cd packages/connections_api && uv run uvicorn rca_connections_api.app:create_app --factory --port 8200
+
+  temporal:up:
+    desc: Start the Temporal dev cluster (server :7233 + UI :8080). auto-setup creates temporal/temporal_visibility DBs in the shared postgres; healthcheck may take 20-40s on first boot.
+    cmds:
+      - docker compose -f infra/docker-compose.yaml up -d temporal temporal-ui
+
+  temporal:down:
+    desc: Stop + remove the Temporal dev cluster (server + UI)
+    cmds:
+      - docker compose -f infra/docker-compose.yaml rm -sf temporal temporal-ui
+
+  infra:up:
+    desc: Bring up the full product infra stack (postgres, neo4j, temporal, temporal-ui)
+    cmds:
+      - docker compose -f infra/docker-compose.yaml up -d --wait postgres neo4j temporal temporal-ui
+
+  infra:lite:
+    # Daily-iteration shortcut (risk callout #2): skip the Temporal cluster so that
+    # developers working on MAR/KG/connections don't wait for auto-setup's 20-40s
+    # postgres provisioning on each iteration. Use `task temporal:up` when you need
+    # the onboarding worker.
+    desc: Bring up ONLY postgres + neo4j (skip Temporal — use for MAR/KG-only iteration)
+    cmds:
+      - docker compose -f infra/docker-compose.yaml up -d --wait postgres neo4j
+
+  # onboarding:worker and api:onboarding are Task 11 (packages/onboarding doesn't exist yet).
