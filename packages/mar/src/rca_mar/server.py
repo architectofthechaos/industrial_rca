@@ -36,9 +36,7 @@ _SOURCE = "mar"
 
 class ResolveRequest(BaseModel):
     external_id: str
-    # TODO(track1): source_system -> connection_id when the connections migration lands
-    # (kept as-is here so the request shape stays stable; renamed coherently in Track 1 Task 7).
-    source_system: str
+    connection_id: str
     time: AwareDatetime | None = None
     min_confidence: float | None = None  # None -> MAR_AUTO_ACCEPT_THRESHOLD (default 0.92)
 
@@ -70,7 +68,7 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
     async def resolve(request: ResolveRequest) -> ToolResponse[ResolveAssetOutput]:
         envelope = ToolResponse[ResolveAssetOutput]
         try:
-            r = await resolve_asset(repo, request.external_id, request.source_system, tenant_id,
+            r = await resolve_asset(repo, request.external_id, request.connection_id, tenant_id,
                                     valid_at=request.time, min_confidence=request.min_confidence,
                                     rules=rules)
             asset = await repo.get_asset(tenant_id, r.asset_id) if r.asset_id else None
@@ -81,10 +79,10 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
                                      confidence=r.confidence,
                                      mapping_source=r.mapping_source, alternatives=alts)
             return ok_response(out, tool="asset.resolve", version=_VERSION, source=_SOURCE,
-                               source_query=(f"resolve {request.source_system}"
+                               source_query=(f"resolve {request.connection_id}"
                                              f":{request.external_id}"),
                                record_count=1 if asset else 0,
-                               raw_tags=[f"{request.source_system}:{request.external_id}"])
+                               raw_tags=[f"{request.connection_id}:{request.external_id}"])
         except Exception as exc:  # noqa: BLE001
             return envelope.fail(map_source_error(exc))
 

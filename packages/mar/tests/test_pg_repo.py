@@ -9,7 +9,7 @@ import pytest
 from rca_contracts import AssetDescriptor
 
 from rca_mar.config import database_url, make_engine, make_session_factory
-from rca_mar.repository import AliasRow
+from rca_mar.repository import AliasRow, ConnectionRow
 from rca_mar.repository_pg import PostgresRepository
 
 TENANT = uuid4()
@@ -37,23 +37,35 @@ def _asset(asset_id, tag):
         commissioned_at=None, decommissioned_at=None, location_description=None, description=None)
 
 
+async def _make_connection(repo, *, category="cmms", connector_type="maximo",
+                           base_url="http://localhost:8002", status="pending") -> str:
+    """Upsert a unique-id connection (status pending so concurrent tests never collide on the
+    one-active-per-(plant, category) partial unique index) and return its id. Aliases FK it."""
+    cid = f"refinery-gc.{category}.{connector_type.replace('_', '-')}-{uuid4().hex[:8]}"
+    await repo.upsert_connection(ConnectionRow(
+        connection_id=cid, plant_id="refinery-gc", category=category,
+        connector_type=connector_type, display_name=f"{connector_type} (test)",
+        base_url=base_url, auth_config={"type": "none", "secret_ref": None}, status=status))
+    return cid
+
+
 async def test_pg_roundtrip_and_canonical_lookup():
     engine = make_engine()
     repo = PostgresRepository(make_session_factory(engine))
     pump = uuid4()
     tag = f"P-{pump.hex[:6].upper()}"
     await repo.upsert_asset(_asset(pump, tag))
-    await repo.upsert_alias(AliasRow(pump, TENANT, "maximo", f"LOC-{pump.hex[:6]}",
+    conn = await _make_connection(repo)
+    await repo.upsert_alias(AliasRow(pump, TENANT, conn, f"LOC-{pump.hex[:6]}",
                                      datetime(2020, 1, 1, tzinfo=timezone.utc), None,
-                                     "authoritative_import", 1.0, True,
-                                     source_system_type="cmms"))
+                                     "authoritative_import", 1.0, True))
 
     got = await repo.get_asset(TENANT, pump)
     assert got is not None and got.canonical_id == f"asset:refinery-gc:unit-101:{tag.lower()}"
     by_canonical = await repo.find_asset_by_canonical_id(
         TENANT, f"asset:refinery-gc:unit-101:{tag.lower()}")
     assert by_canonical is not None and by_canonical.asset_id == pump
-    assert await repo.source_handle_for(TENANT, pump, "maximo") == f"LOC-{pump.hex[:6]}"
+    assert await repo.source_handle_for(TENANT, pump, conn) == f"LOC-{pump.hex[:6]}"
     hits = await repo.search_assets(TENANT, canonical_id_pattern=f"%{tag.lower()}%")
     assert [a.asset_id for a in hits] == [pump]
     await engine.dispose()
@@ -64,16 +76,18 @@ async def test_pg_alias_resolution_metadata_roundtrip():
     repo = PostgresRepository(make_session_factory(engine))
     pump = uuid4()
     await repo.upsert_asset(_asset(pump, f"P-{pump.hex[:6].upper()}"))
+    conn = await _make_connection(repo, category="historian", connector_type="uns",
+                                  base_url="mqtt://localhost:1883")
     await repo.upsert_alias(AliasRow(
-        pump, TENANT, "uns", f"site.{pump.hex[:6]}.pv",
+        pump, TENANT, conn, f"site.{pump.hex[:6]}.pv",
         datetime(2026, 1, 1, tzinfo=timezone.utc), None, "rule:tag_pattern", 0.7, False,
-        source_system_type="historian", resolution_status="pending_review",
+        resolution_status="pending_review",
         candidate_alternatives=[{"canonical_id": "asset:refinery-gc:unit-101:x",
                                  "confidence": 0.7, "method": "rule:tag_pattern"}],
         resolved_by="system"))
-    row = await repo.find_active_alias(TENANT, "uns", f"site.{pump.hex[:6]}.pv", valid_at=None)
+    row = await repo.find_active_alias(TENANT, conn, f"site.{pump.hex[:6]}.pv", valid_at=None)
     assert row is not None and row.resolution_status == "pending_review"
-    assert row.source_system_type == "historian" and row.resolved_by == "system"
+    assert row.connection_id == conn and row.resolved_by == "system"
     assert row.candidate_alternatives[0]["method"] == "rule:tag_pattern"
     await engine.dispose()
 
@@ -88,24 +102,23 @@ async def test_pg_upsert_alias_supersede_and_temporal():
     ext = f"EXT-{uuid4().hex[:8]}"
     await repo.upsert_asset(_asset(a1, f"P-{a1.hex[:6]}"))
     await repo.upsert_asset(_asset(a2, f"P-{a2.hex[:6]}"))
+    conn = await _make_connection(repo)
     t2020 = datetime(2020, 1, 1, tzinfo=timezone.utc)
     t2021 = datetime(2021, 1, 1, tzinfo=timezone.utc)
 
-    await repo.upsert_alias(AliasRow(a1, TENANT, "maximo", ext, t2020, None,
-                                     "authoritative_import", 1.0, True,
-                                     source_system_type="cmms"))
-    assert (await repo.find_active_alias(TENANT, "maximo", ext, valid_at=None)).asset_id == a1
+    await repo.upsert_alias(AliasRow(a1, TENANT, conn, ext, t2020, None,
+                                     "authoritative_import", 1.0, True))
+    assert (await repo.find_active_alias(TENANT, conn, ext, valid_at=None)).asset_id == a1
 
     # supersede -> a2 (closes a1's active row at 2021, inserts a2 open). Only one active row.
-    await repo.upsert_alias(AliasRow(a2, TENANT, "maximo", ext, t2021, None,
+    await repo.upsert_alias(AliasRow(a2, TENANT, conn, ext, t2021, None,
                                      "manual", 1.0, True,
-                                     source_system_type="cmms",
                                      resolution_status="human_validated"))
-    assert (await repo.find_active_alias(TENANT, "maximo", ext, valid_at=None)).asset_id == a2
+    assert (await repo.find_active_alias(TENANT, conn, ext, valid_at=None)).asset_id == a2
 
     # historical query before the rename still resolves to a1 (temporal validity)
     mid2020 = datetime(2020, 6, 1, tzinfo=timezone.utc)
-    assert (await repo.find_active_alias(TENANT, "maximo", ext, valid_at=mid2020)).asset_id == a1
+    assert (await repo.find_active_alias(TENANT, conn, ext, valid_at=mid2020)).asset_id == a1
     await engine.dispose()
 
 

@@ -9,20 +9,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func, text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-
-# Source-system key -> spec source_system_type category (Phase 1 spec §2.3).
-# Shared by seed.py (authoritative import) and resolution.py (pending_review writes)
-# so the mapping has a single owner and resolution no longer depends on seed.
-SOURCE_SYSTEM_CATEGORIES = {
-    "maximo": "cmms",
-    "sap_pm": "cmms",
-    "pi_af": "asset_hierarchy",
-    "uns": "historian",
-}
 
 
 def _utcnow() -> datetime:
@@ -31,6 +22,43 @@ def _utcnow() -> datetime:
 
 class Base(DeclarativeBase):
     pass
+
+
+class Connection(Base):
+    """A configured source-system connection (Sprint 2b §1.1).
+
+    `connection_id` is a human-readable PK `{plant_id}.{category}.{name}`
+    (e.g. `refinery-gc.hierarchy.pi-af-default`). `category` is one of
+    hierarchy / historian / cmms / document / operator_log (enforced in the app
+    layer, stored TEXT). At most one row per `(plant_id, category)` may be
+    `status='active'` — enforced by the partial unique index
+    `uq_connection_active_category`. Aliases FK their owning connection here, so
+    each alias's category and routing live on the connection, not the alias.
+    """
+
+    __tablename__ = "connections"
+    connection_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    plant_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    connector_type: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    base_url: Mapped[str] = mapped_column(Text, nullable=False)
+    auth_config: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    extra_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending",
+                                        server_default="pending")
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_test_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
+                                                 default=_utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
+                                                 default=_utcnow, onupdate=_utcnow,
+                                                 server_default=func.now())
+
+    __table_args__ = (
+        Index("uq_connection_active_category", "plant_id", "category",
+              unique=True, postgresql_where=text("status = 'active'")),
+    )
 
 
 class Asset(Base):
@@ -95,8 +123,8 @@ class AssetAlias(Base):
     asset_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("assets.asset_id"), nullable=False, index=True)
     tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
-    source_system: Mapped[str] = mapped_column(String, nullable=False)
-    source_system_type: Mapped[str] = mapped_column(Text, nullable=False)
+    connection_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("connections.connection_id"), nullable=False, index=True)
     external_id: Mapped[str] = mapped_column(String, nullable=False)
     vendor_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     vendor_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -115,6 +143,12 @@ class AssetAlias(Base):
     is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     confirmed_by: Mapped[str | None] = mapped_column(String, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_alias_lookup", "tenant_id", "connection_id", "external_id"),
+        Index("uq_alias_active", "tenant_id", "connection_id", "external_id",
+              unique=True, postgresql_where=text("valid_to IS NULL")),
+    )
 
 
 class AssetAliasUnresolved(Base):

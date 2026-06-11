@@ -17,22 +17,51 @@ from uuid import UUID
 from rca_contracts import AssetDescriptor
 
 
+class DuplicateActiveConnection(Exception):
+    """Raised when activating a connection would give a (plant_id, category) two active
+    connections — the one-active-source-per-category invariant (Sprint 2b §1.1, enforced
+    by the `uq_connection_active_category` partial unique index in Postgres). The API layer
+    catches this and maps it to a 409 category_conflict."""
+
+    def __init__(self, plant_id: str, category: str, existing_connection_id: str) -> None:
+        self.plant_id = plant_id
+        self.category = category
+        self.existing_connection_id = existing_connection_id
+        super().__init__(
+            f"connection for ({plant_id!r}, {category!r}) already active: "
+            f"{existing_connection_id!r}")
+
+
+@dataclass(frozen=True)
+class ConnectionRow:
+    """A configured source-system connection (Sprint 2b §1.1); mirrors `models.Connection`."""
+    connection_id: str
+    plant_id: str
+    category: str
+    connector_type: str
+    display_name: str
+    base_url: str
+    auth_config: dict[str, Any]
+    status: str = "pending"
+    extra_config: dict[str, Any] | None = None
+    last_tested_at: datetime | None = None
+    last_test_result: dict[str, Any] | None = None
+
+
 @dataclass(frozen=True)
 class AliasRow:
     # Invariant: AliasRow omits resolved_at/validated_by/validated_at; it is therefore
     # never used to rewrite human_validated rows (those are protected in resolution.py).
     asset_id: UUID
     tenant_id: UUID
-    source_system: str
+    connection_id: str
     external_id: str
     valid_from: datetime
     valid_to: datetime | None
     mapping_source: str
     confidence: float
     is_primary: bool = False
-    # Phase 1 spec §2.3 additions. source_system_type defaults to 'cmms' purely for
-    # test-fixture convenience; production write paths (seed, resolution) always set it.
-    source_system_type: str = "cmms"
+    # Phase 1 spec §2.3 additions.
     resolution_status: str = "auto_resolved"
     candidate_alternatives: list[dict[str, Any]] | None = None
     resolved_by: str | None = None
@@ -44,7 +73,7 @@ class AliasRow:
 
 @runtime_checkable
 class AssetRepository(Protocol):
-    async def find_active_alias(self, tenant: UUID, source: str, external_id: str,
+    async def find_active_alias(self, tenant: UUID, connection_id: str, external_id: str,
                                 *, valid_at: datetime | None) -> AliasRow | None: ...
     async def find_crosswalk_candidates(self, tenant: UUID, external_id: str) -> list[AliasRow]: ...
     async def find_asset_by_tag(self, tenant: UUID, tag: str) -> AssetDescriptor | None: ...
@@ -56,11 +85,19 @@ class AssetRepository(Protocol):
                             canonical_id_pattern: str | None = None,
                             criticality: list[str] | None = None, service: str | None = None,
                             limit: int = 50) -> list[AssetDescriptor]: ...
-    async def source_handle_for(self, tenant: UUID, asset_id: UUID, source: str) -> str | None: ...
+    async def source_handle_for(self, tenant: UUID, asset_id: UUID,
+                                connection_id: str) -> str | None: ...
     async def upsert_unresolved(self, tenant: UUID, source: str, external_id: str,
                                 payload: dict[str, Any] | None) -> None: ...
     async def upsert_asset(self, asset: AssetDescriptor) -> None: ...
     async def upsert_alias(self, alias: AliasRow) -> None: ...
+    # Connection CRUD (Sprint 2b §1.1).
+    async def upsert_connection(self, conn: ConnectionRow) -> None: ...
+    async def get_connection(self, connection_id: str) -> ConnectionRow | None: ...
+    async def list_connections(self, *, plant_id: str | None = None, category: str | None = None,
+                               status: str | None = None) -> list[ConnectionRow]: ...
+    async def delete_connection(self, connection_id: str) -> None: ...
+    async def count_aliases_for_connection(self, connection_id: str) -> int: ...
 
 
 def _like_to_regex(pattern: str) -> re.Pattern[str]:
@@ -88,6 +125,7 @@ class InMemoryRepository:
         self.assets: dict[tuple[UUID, UUID], AssetDescriptor] = {}
         self.aliases: list[AliasRow] = []
         self.unresolved: dict[tuple[UUID, str, str], dict[str, Any]] = {}
+        self.connections: dict[str, ConnectionRow] = {}
 
     async def upsert_asset(self, asset: AssetDescriptor) -> None:
         self.assets[(asset.tenant_id, asset.asset_id)] = asset
@@ -99,16 +137,16 @@ class InMemoryRepository:
         self.aliases = [
             replace(a, valid_to=alias.valid_from)
             if (a.tenant_id == alias.tenant_id
-                and a.source_system == alias.source_system
+                and a.connection_id == alias.connection_id
                 and a.external_id == alias.external_id
                 and a.valid_to is None)
             else a
             for a in self.aliases]
         self.aliases.append(alias)
 
-    async def find_active_alias(self, tenant, source, external_id, *, valid_at):
+    async def find_active_alias(self, tenant, connection_id, external_id, *, valid_at):
         for a in self.aliases:
-            if (a.tenant_id == tenant and a.source_system == source
+            if (a.tenant_id == tenant and a.connection_id == connection_id
                     and a.external_id == external_id and _active(a, valid_at)):
                 return a
         return None
@@ -153,10 +191,10 @@ class InMemoryRepository:
             out.append(a)
         return out[:limit]
 
-    async def source_handle_for(self, tenant, asset_id, source):
+    async def source_handle_for(self, tenant, asset_id, connection_id):
         for a in self.aliases:
             if (a.tenant_id == tenant and a.asset_id == asset_id
-                    and a.source_system == source and a.valid_to is None):
+                    and a.connection_id == connection_id and a.valid_to is None):
                 return a.external_id
         return None
 
@@ -168,5 +206,34 @@ class InMemoryRepository:
         else:
             self.unresolved[key] = {"occurrence_count": 1, "candidate_payload": payload}
 
+    async def upsert_connection(self, conn: ConnectionRow) -> None:
+        # Enforce the one-active-per-(plant, category) invariant (the partial unique index
+        # in Postgres) so hermetic tests catch a conflict the same way the live DB would.
+        if conn.status == "active":
+            for existing in self.connections.values():
+                if (existing.connection_id != conn.connection_id
+                        and existing.plant_id == conn.plant_id
+                        and existing.category == conn.category
+                        and existing.status == "active"):
+                    raise DuplicateActiveConnection(
+                        conn.plant_id, conn.category, existing.connection_id)
+        self.connections[conn.connection_id] = conn
 
-__all__ = ["AssetRepository", "AliasRow", "InMemoryRepository"]
+    async def get_connection(self, connection_id: str) -> ConnectionRow | None:
+        return self.connections.get(connection_id)
+
+    async def list_connections(self, *, plant_id=None, category=None, status=None):
+        return [c for c in self.connections.values()
+                if (plant_id is None or c.plant_id == plant_id)
+                and (category is None or c.category == category)
+                and (status is None or c.status == status)]
+
+    async def delete_connection(self, connection_id: str) -> None:
+        self.connections.pop(connection_id, None)
+
+    async def count_aliases_for_connection(self, connection_id: str) -> int:
+        return sum(1 for a in self.aliases if a.connection_id == connection_id)
+
+
+__all__ = ["AssetRepository", "AliasRow", "ConnectionRow", "DuplicateActiveConnection",
+           "InMemoryRepository"]

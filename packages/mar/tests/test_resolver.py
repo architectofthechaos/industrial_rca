@@ -12,6 +12,7 @@ from rca_mar.seed import seed_from_register
 REGISTER = Path(__file__).resolve().parents[1] / "seed_data" / "refplant_assets.yaml"
 TENANT = UUID("0190d3c9-0000-7000-8000-0000000000ff")
 P101A = UUID("0190d3c9-0000-7000-8000-000000000001")
+CONN_MAXIMO = "refinery-gc.cmms.maximo-default"
 
 
 async def _resolver() -> MarResolver:
@@ -26,14 +27,14 @@ async def test_satisfies_port():
 
 async def test_source_binding_returns_external_handle():
     r = await _resolver()
-    b = await r.source_binding(P101A, "maximo")
+    b = await r.source_binding(P101A, CONN_MAXIMO)
     assert isinstance(b, SourceBinding) and b.handle == "CRDU-P101A" and b.raw_unit == "n/a"
 
 
 async def test_unknown_binding_raises():
     r = await _resolver()
     with pytest.raises(UnresolvedSignal):
-        await r.source_binding(uuid4(), "maximo")
+        await r.source_binding(uuid4(), CONN_MAXIMO)
 
 
 async def test_resolve_signal_is_trs_domain():

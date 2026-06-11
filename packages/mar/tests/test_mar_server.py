@@ -31,7 +31,7 @@ async def _client():
 async def test_resolve_exact_returns_canonical_id():
     async with await _client() as c:
         res = await c.call_tool("asset.resolve",
-                                {"request": {"external_id": "CRDU-P101A", "source_system": "maximo"}})
+                                {"request": {"external_id": "CRDU-P101A", "connection_id": "refinery-gc.cmms.maximo-default"}})
         resp = _parse(res, ResolveAssetOutput)
         assert resp.error is None and resp.data.status == "resolved"
         assert str(resp.data.asset.asset_id) == str(P101A)
@@ -43,7 +43,7 @@ async def test_resolve_exact_returns_canonical_id():
 async def test_resolve_unknown_is_success_unresolved():
     async with await _client() as c:
         res = await c.call_tool("asset.resolve",
-                                {"request": {"external_id": "ZZZ", "source_system": "sap_pm"}})
+                                {"request": {"external_id": "ZZZ", "connection_id": "refinery-gc.cmms.sap-pm-default"}})
         resp = _parse(res, ResolveAssetOutput)
         assert resp.error is None and resp.data.status == "unresolved"
         assert resp.data.asset is None and resp.data.canonical_id is None
@@ -55,14 +55,14 @@ async def test_resolve_env_threshold_honored(monkeypatch):
     async with await _client() as c:
         res = _parse(await c.call_tool("asset.resolve",
                                        {"request": {"external_id": "CRDU-P101A",
-                                                    "source_system": "pi_af"}}),
+                                                    "connection_id": "refinery-gc.hierarchy.pi-af-default"}}),
                      ResolveAssetOutput)
         assert res.error is None and res.data.status == "unresolved"
     monkeypatch.setenv("MAR_AUTO_ACCEPT_THRESHOLD", "0.8")
     async with await _client() as c:
         res = _parse(await c.call_tool("asset.resolve",
                                        {"request": {"external_id": "CRDU-P101A",
-                                                    "source_system": "pi_af"}}),
+                                                    "connection_id": "refinery-gc.hierarchy.pi-af-default"}}),
                      ResolveAssetOutput)
         assert res.error is None and res.data.status == "resolved"
         assert res.data.canonical_id == P101A_CANONICAL
@@ -79,7 +79,7 @@ async def test_resolve_via_injected_pattern_rule_reports_rule_id():
     async with Client(make_mar_mcp(repo=repo, tenant_id=TENANT, rules=[rule])) as c:
         res = _parse(await c.call_tool("asset.resolve",
                                        {"request": {"external_id": "P-101A",
-                                                    "source_system": "uns"}}),
+                                                    "connection_id": "refinery-gc.historian.uns-default"}}),
                      ResolveAssetOutput)
         assert res.error is None and res.data.status == "resolved"
         assert res.data.mapping_source == "rule:test_pump_tag"
@@ -91,7 +91,7 @@ async def test_resolve_explicit_min_confidence_overrides_env(monkeypatch):
     async with await _client() as c:
         res = _parse(await c.call_tool("asset.resolve",
                                        {"request": {"external_id": "CRDU-P101A",
-                                                    "source_system": "pi_af",
+                                                    "connection_id": "refinery-gc.hierarchy.pi-af-default",
                                                     "min_confidence": 0.8}}),
                      ResolveAssetOutput)
         assert res.error is None and res.data.status == "resolved"

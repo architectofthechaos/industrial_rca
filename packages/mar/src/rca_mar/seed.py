@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TypedDict
 from uuid import UUID
 
 import yaml
@@ -19,13 +20,54 @@ import yaml
 from rca_contracts import AssetDescriptor
 from rca_kg.slugs import slug as _slug
 
-from .models import SOURCE_SYSTEM_CATEGORIES
-from .repository import AliasRow, AssetRepository
+from .repository import AliasRow, AssetRepository, ConnectionRow
 
 # Register criticality words -> canonical A/B/C/D (SPEC-011 design decision).
 _CRITICALITY = {"high": "A", "medium": "C", "low": "D"}
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _EXTERNAL_ID_KEYS = {"external_id", "vendor_path"}
+
+
+class _ConnSpec(TypedDict):
+    category: str
+    connector_type: str
+    status: str
+    base_url: str
+    extra_config: dict[str, str] | None
+
+
+# Legacy register source key -> the default connection it seeds against (Sprint 2b §1.2).
+# These mirror the synth rows the 0003 migration backfills for an existing 0002 DB:
+# id `{plant}.{category}.{source.replace('_','-')}-default`, the same categories/base_urls/
+# statuses. `sap_pm` is seeded `disabled` so it never clashes with `maximo` on the
+# one-active-per-(plant, category) cmms slot. Keyed by source; the connection_id embeds
+# the plant_id, so it is templated per register at seed time.
+_DEFAULT_CONNECTION_SPECS: dict[str, _ConnSpec] = {
+    "maximo": {"category": "cmms", "connector_type": "maximo", "status": "active",
+               "base_url": "http://localhost:8002", "extra_config": None},
+    "sap_pm": {"category": "cmms", "connector_type": "sap_pm", "status": "disabled",
+               "base_url": "http://localhost:8003", "extra_config": None},
+    "pi_af": {"category": "hierarchy", "connector_type": "pi_af", "status": "active",
+              "base_url": "http://localhost:8001",
+              "extra_config": {"database_name": "Refinery-GC"}},
+    "uns": {"category": "historian", "connector_type": "uns", "status": "active",
+            "base_url": "mqtt://localhost:1883", "extra_config": None},
+}
+
+
+def _connection_id(plant_id: str, source: str) -> str:
+    spec = _DEFAULT_CONNECTION_SPECS[source]
+    return f"{plant_id}.{spec['category']}.{source.replace('_', '-')}-default"
+
+
+def _default_connection_row(plant_id: str, source: str) -> ConnectionRow:
+    spec = _DEFAULT_CONNECTION_SPECS[source]
+    return ConnectionRow(
+        connection_id=_connection_id(plant_id, source), plant_id=plant_id,
+        category=spec["category"], connector_type=spec["connector_type"],
+        display_name=f"{source} (default)", base_url=spec["base_url"],
+        auth_config={"type": "none", "secret_ref": None}, status=spec["status"],
+        extra_config=spec["extra_config"])
 
 
 def _split_external_id(source: str, tag: str, value: object) -> tuple[str, str | None]:
@@ -63,6 +105,21 @@ async def seed_from_register(repo: AssetRepository, register_path: Path) -> None
     tenant = UUID(str(doc["tenant_id"]))
     plant_id = str(doc["plant_id"])
 
+    # Upsert the default connection rows for every source the register references, BEFORE
+    # any alias (each alias FKs its connection). Only seed connections actually used.
+    used_sources = {
+        source
+        for a in doc.get("assets", [])
+        for source in (a.get("external_ids") or {})}
+    for source in used_sources:
+        if source not in _DEFAULT_CONNECTION_SPECS:
+            # The register is authoritative, human-curated input: an unknown source key is a
+            # register bug — fail loudly rather than synthesize a connection for it.
+            raise ValueError(
+                f"unknown source system {source!r} in register {register_path.name}; "
+                f"known: {sorted(_DEFAULT_CONNECTION_SPECS)}")
+        await repo.upsert_connection(_default_connection_row(plant_id, source))
+
     for a in doc.get("assets", []):
         aid = UUID(str(a["asset_id"]))
         canonical_id = f"asset:{plant_id}:{_slug(str(a['unit']))}:{_slug(str(a['tag']))}"
@@ -78,20 +135,24 @@ async def seed_from_register(repo: AssetRepository, register_path: Path) -> None
             manufacturer=a.get("manufacturer"), model=a.get("model"),
             serial_number=a.get("serial_number")))
         for source, value in (a.get("external_ids") or {}).items():
-            if source not in SOURCE_SYSTEM_CATEGORIES:
+            if source not in _DEFAULT_CONNECTION_SPECS:
                 # The register is authoritative, human-curated input: an unknown source
-                # key is a register bug — fail loudly rather than guess a category.
+                # key is a register bug — fail loudly rather than guess a connection.
                 raise ValueError(
                     f"unknown source system {source!r} in register entry {a['tag']!r}; "
-                    f"known: {sorted(SOURCE_SYSTEM_CATEGORIES)}")
+                    f"known: {sorted(_DEFAULT_CONNECTION_SPECS)}")
             external_id, vendor_path = _split_external_id(source, str(a["tag"]), value)
             await repo.upsert_alias(AliasRow(
-                asset_id=aid, tenant_id=tenant, source_system=source,
+                asset_id=aid, tenant_id=tenant, connection_id=_connection_id(plant_id, source),
                 external_id=external_id, valid_from=_EPOCH, valid_to=None,
                 mapping_source="authoritative_import", confidence=1.0, is_primary=True,
-                source_system_type=SOURCE_SYSTEM_CATEGORIES[source],
                 resolution_status="auto_resolved", resolved_by="system",
                 vendor_path=vendor_path))
 
 
-__all__ = ["seed_from_register"]
+__all__ = ["seed_from_register", "default_connection_row", "default_connection_id"]
+
+
+# Public aliases so the Connections API / onboarding pipeline can reuse the synth defaults.
+default_connection_row = _default_connection_row
+default_connection_id = _connection_id

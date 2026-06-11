@@ -22,6 +22,8 @@ from rca_connector_asset_hierarchy.crawler import crawl
 from rca_connector_asset_hierarchy.models import CrawlResult
 
 PLANT = "refinery-gc"
+CONN_MAXIMO = "refinery-gc.cmms.maximo-default"
+CONN_PI_AF = "refinery-gc.hierarchy.pi-af-default"
 REGISTER = Path(__file__).resolve().parents[3] / "mar" / "seed_data" / "refplant_assets.yaml"
 REGISTER_DOC = yaml.safe_load(REGISTER.read_text())
 TENANT = UUID(str(REGISTER_DOC["tenant_id"]))
@@ -53,7 +55,7 @@ async def test_resolve_by_maximo_id_lands_on_the_asset_the_crawler_proposes():
     # cross-source acceptance: asset.resolve via the Maximo external_id binds the SAME
     # asset the crawler proposes for P-101A
     repo, result = await _seeded_repo_and_crawl()
-    resolution = await resolve_asset(repo, "CRDU-P101A", "maximo", TENANT)
+    resolution = await resolve_asset(repo, "CRDU-P101A", CONN_MAXIMO, TENANT)
     assert resolution.status == "resolved" and resolution.asset_id is not None
     resolved = await repo.get_asset(TENANT, resolution.asset_id)
     proposed = next(a for a in result.assets if a.name == "P-101A")
@@ -64,7 +66,7 @@ async def test_resolve_by_maximo_id_lands_on_the_asset_the_crawler_proposes():
 async def test_rekeyed_register_seeds_webid_keyed_pi_af_lookups():
     repo, result = await _seeded_repo_and_crawl()
     web_id = next(a.vendor_id for a in result.assets if a.name == "P-101A")
-    alias = await repo.find_active_alias(TENANT, "pi_af", web_id, valid_at=None)
+    alias = await repo.find_active_alias(TENANT, CONN_PI_AF, web_id, valid_at=None)
     assert alias is not None
     assert alias.vendor_path == PI_AF_BY_TAG["P-101A"]["vendor_path"]
-    assert alias.source_system_type == "asset_hierarchy"
+    assert alias.connection_id == CONN_PI_AF

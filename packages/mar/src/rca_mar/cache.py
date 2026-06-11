@@ -17,21 +17,22 @@ class ResolutionCache:
         self._now = now
         self._data: OrderedDict[tuple[UUID, str, str], tuple[float, Any]] = OrderedDict()
 
-    async def get_or_load(self, tenant: UUID, source: str, external_id: str, loader: Loader) -> Any:
-        key = (tenant, source, external_id)
+    async def get_or_load(self, tenant: UUID, connection_id: str, external_id: str,
+                          loader: Loader) -> Any:
+        key = (tenant, connection_id, external_id)
         hit = self._data.get(key)
         if hit is not None and (self._now() - hit[0]) < self._ttl:
             self._data.move_to_end(key)
             return hit[1]
-        value = await loader(tenant, source, external_id)
+        value = await loader(tenant, connection_id, external_id)
         self._data[key] = (self._now(), value)
         self._data.move_to_end(key)
         while len(self._data) > self._maxsize:
             self._data.popitem(last=False)
         return value
 
-    def invalidate(self, tenant: UUID, source: str, external_id: str) -> None:
-        self._data.pop((tenant, source, external_id), None)
+    def invalidate(self, tenant: UUID, connection_id: str, external_id: str) -> None:
+        self._data.pop((tenant, connection_id, external_id), None)
 
 
 __all__ = ["ResolutionCache"]
