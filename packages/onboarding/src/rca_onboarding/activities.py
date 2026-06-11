@@ -118,7 +118,11 @@ def _descriptor_for(deps: ActivityDeps, plant_id: str, asset: DiscoveredAsset) -
 
 
 def _descriptor_changed(existing: AssetDescriptor, proposed: AssetDescriptor) -> bool:
-    """Compare the fields onboarding owns (ignore lifecycle/timestamps it never sets here)."""
+    """Compare the fields onboarding owns. Deliberately omits `service`/`location_description`
+    (the crawl never populates them — `_descriptor_for` hardcodes them None) and the
+    lifecycle/timestamp fields (status/decommissioned_at/created_at/updated_at) that other
+    write paths own. When a future connector starts emitting `service`, add it here so a
+    source-side change isn't silently ignored."""
     fields = ("canonical_id", "plant_id", "iso14224_class", "iso14224_level", "tag",
               "criticality", "manufacturer", "model", "serial_number", "description")
     return any(getattr(existing, f) != getattr(proposed, f) for f in fields)
@@ -281,7 +285,11 @@ def _mint_kg_id(kind: str, plant_id: str, name: str) -> str:
 
 async def _reconcile_decommission_impl(deps: ActivityDeps, plant_id: str, connection_id: str,
                                        seen_vendor_ids: list[str]) -> int:
-    """Decommission assets whose bindings vanished from the source on this crawl."""
+    """Decommission assets whose bindings vanished from the source on this crawl.
+
+    `plant_id` is currently unused (the connection_id scopes the alias query and encodes the
+    plant) — kept in the signature for symmetry with the other activities and reserved for a
+    future plant-scoped reconciliation (e.g. cross-connection consistency checks)."""
     seen = set(seen_vendor_ids)
     tenant = deps.tenant_id
     decommissioned = 0

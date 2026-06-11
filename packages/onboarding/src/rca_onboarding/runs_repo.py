@@ -57,6 +57,7 @@ class OnboardingRunsRepo(Protocol):
                            per_category_results: dict[str, str], counts: dict[str, int],
                            errors: list[dict], completed_at: datetime) -> None: ...
     async def get_run(self, run_id: str) -> RunRecord | None: ...
+    async def get_run_by_workflow_id(self, workflow_id: str) -> RunRecord | None: ...
     async def list_runs(self, *, plant_id: str | None = None, status: str | None = None,
                         limit: int = 50) -> list[RunRecord]: ...
 
@@ -105,6 +106,12 @@ class PostgresOnboardingRunsRepo:
             row = (await s.execute(q)).scalar_one_or_none()
             return _row_to_record(row) if row else None
 
+    async def get_run_by_workflow_id(self, workflow_id):
+        async with self._sf() as s:
+            q = select(OnboardingRun).where(OnboardingRun.workflow_id == workflow_id)
+            row = (await s.execute(q)).scalar_one_or_none()
+            return _row_to_record(row) if row else None
+
     async def list_runs(self, *, plant_id=None, status=None, limit=50):
         async with self._sf() as s:
             q = select(OnboardingRun)
@@ -142,6 +149,9 @@ class InMemoryOnboardingRunsRepo:
 
     async def get_run(self, run_id):
         return self.runs.get(run_id)
+
+    async def get_run_by_workflow_id(self, workflow_id):
+        return next((r for r in self.runs.values() if r.workflow_id == workflow_id), None)
 
     async def list_runs(self, *, plant_id=None, status=None, limit=50):
         out = [r for r in self.runs.values()

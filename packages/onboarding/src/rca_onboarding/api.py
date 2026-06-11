@@ -1,11 +1,15 @@
 """Onboarding trigger/query REST API (Sprint 2b §2.4): `uvicorn rca_onboarding.api:create_app`.
 
 - POST /onboarding/run {plant_id, connection_ids?} -> start the OnboardingWorkflow on the
-  Temporal cluster and return {run_id, workflow_id} immediately (202; async). The workflow
-  itself writes the onboarding_runs row (start + end), so the API does not create it — that
-  keeps the runs row single-writer (the worker) and avoids a race with the workflow's own
-  start-phase write.
-- GET /onboarding/runs/{run_id} -> the persisted run row (404 if unknown).
+  Temporal cluster and return {workflow_id} immediately (202; async). The workflow itself
+  mints the application run_id and writes the onboarding_runs row (start + end), so the API
+  does not create it — that keeps the runs row single-writer (the worker) and avoids a race
+  with the workflow's own start-phase write. The caller polls with the returned workflow_id
+  (a Temporal start handle has no application run_id yet — that lives on the row the workflow
+  writes once it begins executing).
+- GET /onboarding/runs/{id} -> the persisted run row, addressed by EITHER the application
+  run_id OR the workflow_id (so the 202's workflow_id is a usable polling key). 404 until the
+  workflow has written its start row, then 404 only if truly unknown.
 - GET /onboarding/runs?plant_id=&status=&limit= -> list of run rows.
 - OpenAPI/Swagger at /docs.
 
@@ -44,18 +48,19 @@ def create_app(*, client_factory: ClientFactory | None = None,
         from .workflow import OnboardingWorkflow  # lazy: keeps temporalio off the import path
         workflow_id = f"onboarding-{body.plant_id}-{uuid4()}"
         client = await factory()
-        handle = await client.start_workflow(
+        await client.start_workflow(
             OnboardingWorkflow.run,
             OnboardingInput(plant_id=body.plant_id, connection_ids=body.connection_ids),
             id=workflow_id, task_queue=_task_queue())
-        # The workflow mints its own run_id; expose the workflow_id (and run_id once known via
-        # the runs list / the workflow result). For the immediate 202 we return the workflow_id
-        # as the durable handle the caller polls with.
-        return {"workflow_id": workflow_id, "run_id": getattr(handle, "run_id", workflow_id)}
+        # A Temporal start handle carries no application run_id (the workflow mints that and
+        # writes it onto the onboarding_runs row once it begins). Return the workflow_id — the
+        # caller polls GET /onboarding/runs/{workflow_id}, which resolves by workflow_id too.
+        return {"workflow_id": workflow_id}
 
     @app.get("/onboarding/runs/{run_id}")
     async def get_run(run_id: str) -> dict[str, Any]:
-        rec = await repo.get_run(run_id)
+        # Accept either the application run_id (the row PK) or the workflow_id from the 202.
+        rec = await repo.get_run(run_id) or await repo.get_run_by_workflow_id(run_id)
         if rec is None:
             raise HTTPException(status_code=404, detail=f"onboarding run {run_id!r} not found")
         return rec.to_dict()
@@ -74,14 +79,22 @@ def _task_queue() -> str:
     return os.environ.get("TEMPORAL_TASK_QUEUE", TASK_QUEUE)
 
 
-async def _default_client_factory() -> Any:
-    from temporalio.client import Client
-    from temporalio.contrib.pydantic import pydantic_data_converter
+_CACHED_CLIENT: Any | None = None
 
-    from .worker import temporal_host, temporal_namespace
-    return await Client.connect(
-        temporal_host(), namespace=temporal_namespace(),
-        data_converter=pydantic_data_converter)
+
+async def _default_client_factory() -> Any:
+    # Cache the Temporal client across requests — Client.connect opens a gRPC channel, so a
+    # fresh connect per POST would leak connections under load.
+    global _CACHED_CLIENT
+    if _CACHED_CLIENT is None:
+        from temporalio.client import Client
+        from temporalio.contrib.pydantic import pydantic_data_converter
+
+        from .worker import temporal_host, temporal_namespace
+        _CACHED_CLIENT = await Client.connect(
+            temporal_host(), namespace=temporal_namespace(),
+            data_converter=pydantic_data_converter)
+    return _CACHED_CLIENT
 
 
 def _default_runs_repo() -> Any:

@@ -8,9 +8,11 @@ the returned count reflects only the nodes presented (not "rows created"). The i
 writer mirrors the same semantics over dicts for hermetic tests, and tracks ``write_count``
 (only-incremented-on-actual-change) so idempotency can be asserted without a live database.
 
-Node shape (one dict per node, parents before children is NOT required — edges MERGE
-independently): ``{id, label, name, plant_id, parent_id | None}``. ``label`` must be one of
-Site/Area/Unit (validated against ``queries.HIERARCHY_LABELS``); Asset nodes are Sprint 3.
+Node shape (one dict per node): ``{id, label, name, plant_id, parent_id | None}``. Nodes may
+arrive in any order — ``Neo4jHierarchyWriter`` MERGEs ALL nodes first, then MERGEs the parent
+CONTAINS edges, so a child listed before its parent still gets its edge (a single MERGE-then-
+MATCH loop would silently drop that edge, since the parent MATCH would miss). ``label`` must be
+one of Site/Area/Unit (validated against ``queries.HIERARCHY_LABELS``); Asset nodes are Sprint 3.
 """
 from __future__ import annotations
 
@@ -56,12 +58,16 @@ class Neo4jHierarchyWriter:
             _validated_hierarchy_label(node["label"])
 
         async def work(tx: AsyncManagedTransaction) -> None:
+            # Pass 1: MERGE every node. Pass 2: MERGE the CONTAINS edges. Two passes so a
+            # child presented before its parent still matches (one combined loop would run
+            # the edge MATCH before the parent node exists and silently drop the edge).
             for node in nodes:
                 lbl = _validated_hierarchy_label(node["label"])
                 await tx.run(
                     f"MERGE (n:{lbl} {{id: $id}}) "
                     "SET n.name = $name, n.plant_id = $plant_id",
                     id=node["id"], name=node.get("name"), plant_id=node.get("plant_id"))
+            for node in nodes:
                 parent_id = node.get("parent_id")
                 if parent_id is not None:
                     await tx.run(

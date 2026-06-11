@@ -40,7 +40,8 @@ async def test_post_run_starts_workflow_and_returns_ids():
     assert resp.status_code == 202
     body = resp.json()
     assert body["workflow_id"].startswith("onboarding-refinery-gc-")
-    assert body["run_id"] == "run-abc"
+    # the 202 returns only workflow_id — a Temporal start handle has no application run_id yet
+    assert "run_id" not in body
     assert len(fake.started) == 1
     assert fake.started[0]["task_queue"] == "rca-onboarding"
 
@@ -58,6 +59,10 @@ async def test_get_run_404_then_found():
     found = client.get("/onboarding/runs/11111111-1111-1111-1111-111111111111")
     assert found.status_code == 200
     assert found.json()["status"] == "running"
+    # the row is also resolvable by workflow_id — the key the 202 hands back to callers
+    by_wf = client.get("/onboarding/runs/wf-1")
+    assert by_wf.status_code == 200
+    assert by_wf.json()["run_id"] == "11111111-1111-1111-1111-111111111111"
 
 
 async def test_list_runs_filters():

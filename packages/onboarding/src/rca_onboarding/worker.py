@@ -54,6 +54,9 @@ def _http_factory(base_url: str) -> httpx.AsyncClient:
 # modules through so the sandbox reuses the already-loaded real modules (it imports the
 # activities module under workflow.unsafe.imports_passed_through() either way; this covers the
 # sandbox's workflow-validation import too).
+# MAINTENANCE: this list is load-bearing — if rca_connector_sdk / the AF crawler later pull in
+# another library that installs an import hook (like beartype's claw), add it here or the worker
+# will fail to start with a sandbox import error.
 _WORKFLOW_RUNNER = SandboxedWorkflowRunner(
     restrictions=SandboxRestrictions.default.with_passthrough_modules(
         "beartype", "fastmcp", "rca_connector_asset_hierarchy", "rca_connector_sdk"))
