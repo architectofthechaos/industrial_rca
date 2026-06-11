@@ -53,20 +53,20 @@ tasks:
       - uv run pytest packages/connectors/sap_pm/tests/test_sap_pm_parity.py -q -p no:cacheprovider
 
   parity:maximo:
-    desc: Run the Maximo connector parity test against the REAL Maximo simulator (starts + tears down)
+    desc: Run the work_order MCP parity test against the REAL Maximo simulator (starts + tears down)
     cmds:
       - cd rca_simulator && task up:maximo
       - defer: cd rca_simulator && task down:maximo
       - sleep 4
-      - uv run pytest packages/connectors/maximo/tests/test_maximo_parity.py -q -p no:cacheprovider
+      - uv run pytest packages/connectors/maximo/tests/test_work_order_parity.py -q -p no:cacheprovider
 
   parity:documents:
-    desc: Run the Documents connector parity test against the REAL docs simulator (starts + tears down)
+    desc: Run the document MCP parity test against the REAL docs simulator (starts + tears down)
     cmds:
       - cd rca_simulator && task up:documents
       - defer: cd rca_simulator && task down:documents
       - sleep 4
-      - uv run pytest packages/connectors/documents/tests/test_documents_parity.py -q -p no:cacheprovider
+      - uv run pytest packages/connectors/documents/tests/test_document_parity.py -q -p no:cacheprovider
 
   parity:opcua:
     desc: Run the OPC UA connector parity test against the REAL OPC UA simulator (starts + tears down)

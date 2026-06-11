@@ -1,97 +1,131 @@
-"""S13.3 Maximo connector test: read + idempotent write-back, end-to-end through MCP.
+"""Hermetic tests for the `work_order` entity MCP (Sprint 2b Track 3 Task 5).
 
-Hermetic in-test Maximo OSLC fake with a mutable wonum-keyed store (upsert on POST,
-so commit replays don't duplicate).
+Drives the FastAPI fake Maximo OSLC surface via an ASGI transport so no real server is
+needed. Asserts the tool set is the three work_order.* tools (+ test_connection) with NO
+maximo.* name, and that every response carries provenance.connection_id.
 """
+from __future__ import annotations
+
 import json
-from uuid import uuid4
 
 import httpx
-from fastapi import Body, FastAPI, Request
 from fastmcp import Client
-from rca_connector_sdk import SourceBinding
+from rca_connector_sdk import ConnectionInfo, StaticAssetGateway, StaticConnectionRouter
 from rca_contracts import ToolResponse, WorkOrder
 
-from rca_connector_maximo.server import make_maximo_mcp
+from rca_connector_maximo.server import make_work_order_mcp
 
-ASSET = uuid4()
+from fake_maximo import build_fake_maximo
+
+CANONICAL = "asset:refinery-gc:unit-101:p-101a"
+PLANT = "refinery-gc"
 LOC = "CRDU-P101A"
+CONNECTION_ID = "refinery-gc.cmms.maximo-main"
 
 
-def _build_maximo_fake():
-    app = FastAPI(title="Maximo fake")
-    # mutable store keyed by wonum (idempotent upsert), seeded with two WOs
-    store: dict[str, dict] = {
-        "WO-50012402": {"wonum": "WO-50012402", "location": LOC, "description": "seal leak",
-                        "status": "COMP", "reportdate": "2026-03-28T19:00:00",
-                        "wopriority": 1, "problemcode": "LEAK", "failurecode": "LEK"},
-    }
-    failreps = [{"failurenum": "FR-LEGACY-0001", "wonum": "WO-49900001", "location": LOC,
-                 "failurecode": "SEAL-LEG-07", "reportdate": "2025-10-02T08:00:00"}]
-
-    @app.get("/maxrest/oslc/os/mxwo")
-    def get_mxwo(request: Request):
-        return {"member": list(store.values()), "responseInfo": {"totalCount": len(store)}}
-
-    @app.post("/maxrest/oslc/os/mxwo")
-    def post_mxwo(record: dict = Body(...)):
-        store[record["wonum"]] = {**store.get(record["wonum"], {}), **record}  # upsert
-        return store[record["wonum"]]
-
-    @app.get("/maxrest/oslc/os/mxfailrep")
-    def get_mxfailrep(request: Request):
-        return {"member": failreps, "responseInfo": {"totalCount": len(failreps)}}
-
-    return app, store
+def _router() -> StaticConnectionRouter:
+    return StaticConnectionRouter([
+        ConnectionInfo(
+            connection_id=CONNECTION_ID, plant_id=PLANT, category="cmms",
+            connector_type="maximo", base_url="http://maximo-fake", extra_config={},
+        ),
+    ])
 
 
-def _parse_list(result) -> "ToolResponse[list[WorkOrder]]":
-    payload = result.structured_content if result.structured_content is not None else result.data
-    return ToolResponse[list[WorkOrder]].model_validate_json(json.dumps(payload))
+def _assets() -> StaticAssetGateway:
+    return StaticAssetGateway(handles={(CANONICAL, "cmms"): LOC})
 
 
-def _parse_one(result) -> "ToolResponse[WorkOrder]":
-    payload = result.structured_content if result.structured_content is not None else result.data
-    return ToolResponse[WorkOrder].model_validate_json(json.dumps(payload))
-
-
-async def test_maximo_read_and_idempotent_writeback():
-    app, store = _build_maximo_fake()
+def _factory():
+    app = build_fake_maximo()
     transport = httpx.ASGITransport(app=app)
-    bindings = {(ASSET, "maximo"): SourceBinding(handle=LOC, raw_unit="n/a")}
-    async with httpx.AsyncClient(transport=transport, base_url="http://maximo") as http:
-        mcp = make_maximo_mcp(http_client=http, bindings=bindings)
-        async with Client(mcp) as client:
-            names = {t.name for t in await client.list_tools()}
-            assert {"maximo.get_workorders", "maximo.get_failure_history",
-                    "maximo.preview_writeback", "maximo.commit_writeback"} <= names
 
-            # read work orders -> canonical, local-time -> UTC
-            wos = _parse_list(await client.call_tool(
-                "maximo.get_workorders", {"request": {"asset_id": str(ASSET)}}))
-            assert wos.error is None and len(wos.data) == 1
-            assert wos.data[0].work_order_id == "WO-50012402"
-            assert wos.data[0].source_system == "maximo"
-            assert wos.data[0].opened_at.tzinfo is not None
+    def _make(base_url: str) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=transport, base_url="http://maximo-fake")
 
-            # failure history surfaces the legacy code
-            fh = _parse_list(await client.call_tool(
-                "maximo.get_failure_history", {"request": {"asset_id": str(ASSET)}}))
-            assert fh.data[0].failure_code == "SEAL-LEG-07"
+    return _make
 
-            # preview does NOT write
-            before = len(store)
-            prev = _parse_one(await client.call_tool("maximo.preview_writeback", {"request": {
-                "asset_id": str(ASSET), "wonum": "WO-99999001", "description": "new"}}))
-            assert prev.error is None and prev.data.work_order_id == "WO-99999001"
-            assert len(store) == before                     # nothing persisted
 
-            # commit writes once; replay is idempotent
-            payload = {"request": {"asset_id": str(ASSET), "wonum": "WO-99999001",
-                                   "description": "new corrective", "priority": "1"}}
-            c1 = _parse_one(await client.call_tool("maximo.commit_writeback", payload))
-            assert c1.error is None and c1.data.work_order_id == "WO-99999001"
-            after_first = len(store)
-            await client.call_tool("maximo.commit_writeback", payload)   # replay
-            assert len(store) == after_first                # no duplicate
-            assert after_first == before + 1
+def _parse(result, model):
+    payload = result.structured_content if result.structured_content is not None else result.data
+    return ToolResponse[model].model_validate_json(json.dumps(payload))
+
+
+def _mcp():
+    return make_work_order_mcp(
+        router=_router(), assets=_assets(), http_client_factory=_factory()
+    )
+
+
+async def test_work_order_tool_set_has_no_maximo_prefix():
+    async with Client(_mcp()) as client:
+        names = {t.name for t in await client.list_tools()}
+    assert names == {
+        "work_order.list_for_asset", "work_order.get", "work_order.list_recent",
+        "test_connection",
+    }
+    assert not any(n.startswith("maximo.") for n in names)
+
+
+async def test_work_order_list_for_asset_returns_workorders():
+    async with Client(_mcp()) as client:
+        res = await client.call_tool("work_order.list_for_asset", {"request": {
+            "canonical_id": CANONICAL,
+        }})
+        resp = _parse(res, list[WorkOrder])
+    assert resp.error is None and resp.data is not None
+    assert len(resp.data) >= 1
+    assert all(w.source_system == "maximo" for w in resp.data)
+    assert all(w.opened_at.tzinfo is not None for w in resp.data)   # local -> UTC
+    assert {"WO-50012345", "WO-50012402"} <= {w.work_order_id for w in resp.data}
+    assert resp.provenance.connection_id == CONNECTION_ID
+
+
+async def test_work_order_get_by_wonum_returns_that_workorder():
+    async with Client(_mcp()) as client:
+        res = await client.call_tool("work_order.get", {"request": {
+            "work_order_id": "WO-50012345", "plant_id": PLANT,
+        }})
+        resp = _parse(res, WorkOrder)
+    assert resp.error is None and resp.data is not None
+    assert resp.data.work_order_id == "WO-50012345"
+    assert resp.data.failure_code == "LEK"
+    assert resp.data.source_system == "maximo"
+    assert resp.provenance.connection_id == CONNECTION_ID
+
+
+async def test_work_order_get_unknown_is_not_found():
+    async with Client(_mcp()) as client:
+        res = await client.call_tool("work_order.get", {"request": {
+            "work_order_id": "WO-DOES-NOT-EXIST", "plant_id": PLANT,
+        }})
+        resp = _parse(res, WorkOrder)
+    assert resp.data is None
+    assert resp.error.code == "not_found"
+
+
+async def test_work_order_list_recent_sorted_and_limited():
+    async with Client(_mcp()) as client:
+        res = await client.call_tool("work_order.list_recent", {"request": {
+            "plant_id": PLANT, "limit": 2,
+        }})
+        resp = _parse(res, list[WorkOrder])
+    assert resp.error is None and resp.data is not None
+    assert len(resp.data) == 2                                       # limit applied
+    # newest first by reportdate: WO-50012402 (2026-03-30) then WO-50012345 (2026-03-28)
+    assert [w.work_order_id for w in resp.data] == ["WO-50012402", "WO-50012345"]
+    assert resp.data[0].opened_at >= resp.data[1].opened_at
+    assert resp.provenance.connection_id == CONNECTION_ID
+
+
+async def test_work_order_list_for_asset_default_gateway_has_no_cmms_handle():
+    """The factory default (CanonicalSlugAssetGateway) can't resolve a cmms location, so
+    list_for_asset returns a clean not_found ToolError until MAR wiring supplies one."""
+    mcp = make_work_order_mcp(router=_router(), http_client_factory=_factory())
+    async with Client(mcp) as client:
+        res = await client.call_tool("work_order.list_for_asset", {"request": {
+            "canonical_id": CANONICAL,
+        }})
+        resp = _parse(res, list[WorkOrder])
+    assert resp.data is None
+    assert resp.error.code == "not_found"

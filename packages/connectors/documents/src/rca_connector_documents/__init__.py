@@ -1,6 +1,7 @@
-"""rca_connector_documents — the Documents connector (EPIC-013 S13.6).
+"""rca_connector_documents — the SharePoint-backed ``document`` entity MCP (Sprint 2b Track 3).
 
-Translates SharePoint/Graph (HTTP) and S3 document sources into canonical
-DocumentRef via connector_sdk. Query/document-scoped (no signal/asset). Product
-code: never imports rca_simulator.
+Translates SharePoint/Graph (HTTP) document sources into the canonical DocumentRef contract
+and serves them as the ``document`` entity MCP (search_for_asset / get / list_by_type),
+routing per request via the connection registry. Replaces the old documents.* vendor tools.
+Product code: never imports rca_simulator.
 """
