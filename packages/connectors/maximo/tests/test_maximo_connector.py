@@ -129,3 +129,20 @@ async def test_work_order_list_for_asset_default_gateway_has_no_cmms_handle():
         resp = _parse(res, list[WorkOrder])
     assert resp.data is None
     assert resp.error.code == "not_found"
+
+
+async def test_work_order_no_active_connection_is_source_unavailable():
+    """A request for a plant/category with no configured connection maps to
+    source_unavailable (a fixable config state), NOT internal_error."""
+    empty_router = StaticConnectionRouter([])   # no connections registered
+    mcp = make_work_order_mcp(
+        router=empty_router, assets=_assets(), http_client_factory=_factory(),
+    )
+    async with Client(mcp) as client:
+        res = await client.call_tool("work_order.list_for_asset", {"request": {
+            "canonical_id": CANONICAL,
+        }})
+        resp = _parse(res, list[WorkOrder])
+    assert resp.data is None
+    assert resp.error.code == "source_unavailable"
+    assert resp.error.code != "internal_error"

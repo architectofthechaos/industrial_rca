@@ -168,7 +168,7 @@ def test_stream_value_returns_value_object():
     """GET /streams/{webId}/value → {Timestamp, Value, Good}."""
     c, rp = client_and_rp()
     wid = encode_webid("P-101A.discharge_pressure")
-    t = rp.time_axis.window_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+    t = (rp.time_axis.window_end or rp.time_axis.reference_time).strftime("%Y-%m-%dT%H:%M:%SZ")
     r = c.get(f"/streams/{wid}/value", params={"time": t})
     assert r.status_code == 200
     body = r.json()

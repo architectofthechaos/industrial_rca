@@ -42,7 +42,7 @@ _VERSION = "0.1.0"
 _SOURCE = "sharepoint"
 _CAT_DOCUMENT = "document"
 
-DRIVE = "refplant"   # the sim's drive id; would be per-connection config in production
+DRIVE = "refplant"   # TODO(track1): source the drive id from ConnectionInfo.extra_config
 
 _DOCTYPE = {"datasheet": "datasheet", "pid": "p_and_id", "rca_report": "rca_report"}
 _ID_PREFIX = {"DS": "datasheet", "PID": "p_and_id", "RCA": "rca_report"}

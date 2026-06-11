@@ -29,6 +29,7 @@ from rca_connector_sdk import (
     CanonicalSlugAssetGateway,
     ConnectionRouter,
     MalformedResponse,
+    NotFound,
     build_server,
     map_source_error,
     ok_response,
@@ -46,7 +47,7 @@ _CAT_CMMS = "cmms"
 _OSLC = "/maxrest/oslc/os"
 # Maximo emits local-time-without-TZ reportdates; this is the reference site tz. (A future
 # MAR/connection binding can carry per-connection timezone; MVP uses the fleet default.)
-_SOURCE_TZ = "America/Chicago"
+_SOURCE_TZ = "America/Chicago"   # TODO(track1): source from ConnectionInfo.extra_config
 
 HttpClientFactory = Callable[[str], httpx.AsyncClient]
 
@@ -156,19 +157,15 @@ def make_work_order_mcp(
                 (m for m in members if m.get("wonum") == request.work_order_id), None
             )
             if match is None:
-                raise MalformedResponse  # mapped below to not_found
+                # absent wonum is "not found" — distinct from a malformed member, which
+                # _member_to_workorder raises as MalformedResponse (a data error).
+                raise NotFound(f"no work order with wonum {request.work_order_id!r}")
             work_order = _member_to_workorder(match, asset_id, _SOURCE_TZ)
             return ok_response(
                 work_order, tool="work_order.get", version=_VERSION,
                 source=_SOURCE, source_query=str(resp.request.url),
                 record_count=1, raw_tags=[request.work_order_id],
                 connection_id=conn.connection_id,
-            )
-        except MalformedResponse:
-            # no member matched the wonum -> not_found (the WO does not exist)
-            from rca_connector_sdk import NotFound
-            return envelope.fail(
-                map_source_error(NotFound(f"no work order with wonum {request.work_order_id!r}"))
             )
         except Exception as exc:  # noqa: BLE001
             return envelope.fail(map_source_error(exc))

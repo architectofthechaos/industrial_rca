@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
+from .errors import ConnectorError
+
 
 @dataclass(frozen=True)
 class ConnectionInfo:
@@ -21,8 +23,16 @@ class ConnectionInfo:
     extra_config: dict = field(default_factory=dict)
 
 
-class NoActiveConnection(Exception):
-    """No connection (or no unambiguous connection) matched the requested scope."""
+class NoActiveConnection(ConnectorError):
+    """No connection (or no unambiguous connection) matched the requested scope.
+
+    Maps to ``source_unavailable`` (not ``internal_error``): a missing/ambiguous
+    connection is a configuration state the caller can fix, not a connector bug.
+    Not retryable — retrying the same call won't help until the config changes.
+    """
+
+    code = "source_unavailable"
+    retryable = False
 
 
 @runtime_checkable
