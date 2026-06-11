@@ -7,7 +7,7 @@ window). The workflow seeds the first leg's ``graph_state`` with the finalized p
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from rca_contracts import (
     AgentLegResult,
@@ -206,7 +206,9 @@ class GatherAgent:
         return out
 
     @staticmethod
-    def _score_documents(docs: list[dict], plan: InvestigationPlan) -> tuple[list[ScoredDocument], str]:
+    def _score_documents(
+        docs: list[dict], plan: InvestigationPlan,
+    ) -> tuple[list[ScoredDocument], Literal["embedding_v1", "keyword_overlap"]]:
         terms = set()
         for c in plan.candidate_failure_modes:
             terms.update(c.name.lower().split())

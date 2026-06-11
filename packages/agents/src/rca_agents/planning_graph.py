@@ -7,7 +7,7 @@ to the §3.1 LangGraph nodes; ``run_leg`` dispatches on ``state["awaiting"]``.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from rca_contracts import (
     AgentLegResult,
@@ -18,6 +18,7 @@ from rca_contracts import (
     InvestigationPlan,
     Message,
     PlanStep,
+    PlanStepType,
     TokenUsage,
 )
 
@@ -233,16 +234,18 @@ class PlanningAgent:
             for i, s in enumerate(raw):
                 steps.append(PlanStep(
                     step_id=det_uuid(ctx.probe_run_id, "step", str(version), str(i)),
-                    step_type=s["step_type"], description=s.get("description", s["step_type"]),
+                    step_type=cast(PlanStepType, s["step_type"]),
+                    description=s.get("description", s["step_type"]),
                     parameters=s.get("parameters", {}), rationale=s.get("rationale", ""),
                     estimated_cost=s.get("estimated_cost")))
         # Guarantee an opinionated baseline (≥3 steps + a kg_query) even if the LLM was terse.
         present = {s.step_type for s in steps}
-        defaults = [("tag_history", "Pull tag history for the asset", {"lookback_hours": 168}),
-                    ("work_orders", "List recent work orders", {}),
-                    ("documents", "Search asset documents", {"query": "failure"}),
-                    ("operator_logs", "List operator log entries", {}),
-                    ("kg_query", "Load KG asset context + applicable failure modes", {})]
+        defaults: list[tuple[PlanStepType, str, dict]] = [
+            ("tag_history", "Pull tag history for the asset", {"lookback_hours": 168}),
+            ("work_orders", "List recent work orders", {}),
+            ("documents", "Search asset documents", {"query": "failure"}),
+            ("operator_logs", "List operator log entries", {}),
+            ("kg_query", "Load KG asset context + applicable failure modes", {})]
         for j, (stype, desc, params) in enumerate(defaults):
             if stype not in present:
                 steps.append(PlanStep(

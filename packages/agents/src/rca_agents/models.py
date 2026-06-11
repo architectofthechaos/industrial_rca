@@ -12,6 +12,7 @@ class ProbeWorkflowInput(BaseModel):
     plant_id: str | None = None
     reference_time: datetime | None = None     # frozen to workflow start when omitted (G10)
     requested_by: str
+    probe_run_id: str | None = None            # API mints it so it can 202-return it (G10/G11)
     input_tokens_limit: int = 50000
     output_tokens_limit: int = 10000
 

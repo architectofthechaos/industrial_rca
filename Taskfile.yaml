@@ -199,3 +199,18 @@ tasks:
     desc: Serve the Onboarding trigger/query API (:8300, OpenAPI at /docs) — POST /onboarding/run starts a workflow
     cmds:
       - cd packages/onboarding && uv run uvicorn rca_onboarding.api:create_app --factory --port 8300
+
+  probe:worker:
+    desc: "Run the probe Temporal worker (rca-probes queue — Sprint 3 G12). NOTE: needs the production build_deps wiring (Postgres repos + Neo4jAssetGraph + McpToolBox + live LLM) — see sprint3_state_report.md 'Deferred to next sprint'; runnable today only with an injected deps bundle."
+    cmds:
+      - uv run python -m rca_agents.worker
+
+  api:probes:
+    desc: Serve the Probe API (:8400, OpenAPI at /docs) — POST /probes/run starts an end-to-end probe; HITL via /probes/runs/{id}/hitl/*
+    cmds:
+      - cd packages/agents && uv run uvicorn rca_agents.api:create_app --factory --port 8400
+
+  test:agents:
+    desc: Run the Sprint 3 LLM + agents hermetic tests (no DB, no sim, no cluster)
+    cmds:
+      - uv run pytest packages/llm packages/agents -q

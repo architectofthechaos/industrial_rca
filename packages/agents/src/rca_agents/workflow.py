@@ -65,7 +65,7 @@ class ProbeWorkflow:
 
     @workflow.run
     async def run(self, inp: ProbeWorkflowInput) -> ProbeResult:
-        probe_run_id = str(workflow.uuid4())
+        probe_run_id = inp.probe_run_id or str(workflow.uuid4())
         workflow_id = workflow.info().workflow_id
         started_at = workflow.now()
         reference_time = inp.reference_time or started_at
