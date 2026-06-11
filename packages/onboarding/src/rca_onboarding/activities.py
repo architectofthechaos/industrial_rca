@@ -97,8 +97,12 @@ def _criticality(attributes: dict[str, str]) -> str:
     return _CRITICALITY.get(str(attributes.get("Criticality", "")).lower(), "C")
 
 
-def _descriptor_for(deps: ActivityDeps, plant_id: str, asset: DiscoveredAsset) -> AssetDescriptor:
-    asset_id = uuid5(NAMESPACE_URL, asset.proposed_canonical_id)
+def _descriptor_for(deps: ActivityDeps, plant_id: str, asset: DiscoveredAsset,
+                    asset_id: UUID | None = None) -> AssetDescriptor:
+    # Reuse an already-registered asset's id when given (e.g. a register-seeded asset under the
+    # same canonical_id); otherwise mint a deterministic id from the canonical_id. Minting a
+    # fresh id for an already-registered canonical_id would violate uq_assets_canonical_id.
+    asset_id = asset_id or uuid5(NAMESPACE_URL, asset.proposed_canonical_id)
     return AssetDescriptor(
         asset_id=asset_id,
         canonical_id=asset.proposed_canonical_id,
@@ -202,16 +206,19 @@ async def _project_to_mar_impl(deps: ActivityDeps, plant_id: str, connection_id:
     counts = ProjectionCounts()
     tenant = deps.tenant_id
     for asset in assets:
-        proposed = _descriptor_for(deps, plant_id, asset)
-        asset_id = proposed.asset_id
-        resolution_status = ("auto_resolved"
-                             if asset.iso14224_class_confidence >= deps.threshold
-                             else "pending_review")
-
         existing_binding = await deps.repo.find_active_alias(
             tenant, connection_id, asset.vendor_id, valid_at=None)
         existing_asset = await deps.repo.find_asset_by_canonical_id(
             tenant, asset.proposed_canonical_id)
+
+        # Reuse the registered asset's id (e.g. a register-seeded P-101A) so we update it in
+        # place rather than inserting a colliding canonical_id with a freshly-minted id.
+        existing_asset_id = existing_asset.asset_id if existing_asset is not None else None
+        proposed = _descriptor_for(deps, plant_id, asset, asset_id=existing_asset_id)
+        asset_id = proposed.asset_id
+        resolution_status = ("auto_resolved"
+                             if asset.iso14224_class_confidence >= deps.threshold
+                             else "pending_review")
 
         # --- asset registry: insert new, update on change, else no-op (idempotent) ---
         asset_was_new = existing_asset is None
