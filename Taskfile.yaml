@@ -25,7 +25,8 @@ tasks:
         packages/connectors/echo/src packages/connectors/pi/src
         packages/connectors/sap_pm/src packages/connectors/maximo/src
         packages/connectors/documents/src packages/connectors/opc_ua/src
-        packages/connectors/mqtt/src packages/mar/src packages/kg/src
+        packages/connectors/mqtt/src packages/connectors/asset_hierarchy/src
+        packages/mar/src packages/kg/src
 
   parity:pi:
     desc: Run the PI connector parity test against the REAL PI simulator (starts + tears it down)
@@ -34,6 +35,14 @@ tasks:
       - defer: cd rca_simulator && task down:pi
       - sleep 4
       - uv run pytest packages/connectors/pi/tests/test_pi_parity.py -q -p no:cacheprovider
+
+  parity:asset_hierarchy:
+    desc: Run the asset_hierarchy crawler tests against the REAL PI simulator (AF endpoints live there)
+    cmds:
+      - cd rca_simulator && task up:pi
+      - defer: cd rca_simulator && task down:pi
+      - sleep 4
+      - uv run pytest packages/connectors/asset_hierarchy -q -p no:cacheprovider
 
   parity:sap:
     desc: Run the SAP PM connector parity test against the REAL SAP simulator (starts + tears it down)

@@ -1,0 +1,82 @@
+"""FastMCP server for the asset_hierarchy crawler tools (Sprint 2a Task 7).
+
+Hand-wired tools in the MAR/KG-server style (ProvenanceAccumulator + map_source_error
++ ToolResponse[CrawlResult]) — NOT @evidence_tool, because base_url arrives per
+request: each call opens its own httpx.AsyncClient (factory injectable for tests),
+runs the pure crawler, and wraps the result with source="asset_hierarchy" provenance.
+source_query records the elements listing URL (the full crawl shows the database by
+name, since its WebId is internal to the crawler).
+"""
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime, timezone
+from uuid import uuid4
+
+import httpx
+from fastmcp import FastMCP
+from rca_connector_sdk import ProvenanceAccumulator, build_server, map_source_error
+from rca_contracts import ToolResponse
+
+from . import crawler
+from .models import CrawlRequest, CrawlResult, CrawlSubtreeRequest
+
+_VERSION = "0.1.0"
+_SOURCE = "asset_hierarchy"
+_LISTING = "elements?searchFullHierarchy=true&maxCount=10000"
+
+
+def _default_factory(base_url: str) -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=base_url, timeout=30.0)
+
+
+def _ok(envelope, data, *, tool, source_query, record_count, raw_tags):
+    prov = ProvenanceAccumulator()
+    prov.record(source_query=source_query, record_count=record_count, raw_tags=raw_tags)
+    provenance = prov.build(tool_name=tool, tool_version=_VERSION, source=_SOURCE,
+                            queried_at=datetime.now(timezone.utc), response_id=uuid4())
+    return envelope.ok(data, provenance)
+
+
+def make_asset_hierarchy_mcp(
+    *, http_client_factory: Callable[[str], httpx.AsyncClient] | None = None,
+) -> FastMCP:
+    factory = http_client_factory or _default_factory
+    mcp = build_server("asset_hierarchy")
+
+    @mcp.tool(name="asset_hierarchy.crawl")
+    async def crawl(request: CrawlRequest) -> ToolResponse[CrawlResult]:
+        envelope = ToolResponse[CrawlResult]
+        try:
+            async with factory(request.base_url) as client:
+                result = await crawler.crawl(
+                    client, database_name=request.database_name,
+                    plant_id=request.plant_id, max_depth=request.max_depth)
+            return _ok(envelope, result, tool="asset_hierarchy.crawl",
+                       source_query=(f"{request.base_url}/assetdatabases"
+                                     f"/<{request.database_name}>/{_LISTING}"),
+                       record_count=len(result.assets),
+                       raw_tags=[a.name for a in result.assets])
+        except Exception as exc:  # noqa: BLE001
+            return envelope.fail(map_source_error(exc))
+
+    @mcp.tool(name="asset_hierarchy.crawl_subtree")
+    async def crawl_subtree(request: CrawlSubtreeRequest) -> ToolResponse[CrawlResult]:
+        envelope = ToolResponse[CrawlResult]
+        try:
+            async with factory(request.base_url) as client:
+                result = await crawler.crawl_subtree(
+                    client, root_web_id=request.root_web_id,
+                    plant_id=request.plant_id, max_depth=request.max_depth)
+            return _ok(envelope, result, tool="asset_hierarchy.crawl_subtree",
+                       source_query=(f"{request.base_url}/elements"
+                                     f"/{request.root_web_id}/{_LISTING}"),
+                       record_count=len(result.assets),
+                       raw_tags=[a.name for a in result.assets])
+        except Exception as exc:  # noqa: BLE001
+            return envelope.fail(map_source_error(exc))
+
+    return mcp
+
+
+__all__ = ["make_asset_hierarchy_mcp"]

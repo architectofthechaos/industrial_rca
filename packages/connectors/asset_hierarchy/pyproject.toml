@@ -1,0 +1,27 @@
+[project]
+name = "rca-connector-asset-hierarchy"
+version = "0.0.1"
+description = "Asset Hierarchy connector (Sprint 2a) — crawls PI AF into DiscoveredAsset/DiscoveredHierarchyNode proposals."
+requires-python = ">=3.12"
+dependencies = [
+    "rca-contracts",
+    "rca-connector-sdk",
+    "rca-mar",
+    "rca-kg",
+    "pydantic>=2",
+    "httpx",
+    "fastmcp>=3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rca_connector_asset_hierarchy"]
+
+[tool.uv.sources]
+rca-contracts = { workspace = true }
+rca-connector-sdk = { workspace = true }
+rca-mar = { workspace = true }
+rca-kg = { workspace = true }
