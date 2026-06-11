@@ -106,8 +106,8 @@ async def test_seed_accepts_mapping_external_id_with_vendor_path(tmp_path):
     # a register source value may be a mapping {external_id, vendor_path} (the re-keyed
     # pi_af form: WebId as external_id, AF path as vendor_path); plain strings keep the
     # old behavior (external_id only, vendor_path stays None)
-    web_id = "S1XFxQSS1ERU1PXFJlZmluZXJ5LUdDXFNJVEUtREVNT1xBUkVBLTEwMFxVTklULTEwMVxQLTEwMUE"
-    af_path = r"\\PI-DEMO\Refinery-GC\SITE-DEMO\AREA-100\UNIT-101\P-101A"
+    web_id = P101A_WEBID
+    af_path = P101A_AF_PATH
     register = tmp_path / "register.yaml"
     register.write_text(
         "version: 1\n"

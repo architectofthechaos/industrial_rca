@@ -25,6 +25,7 @@ from .repository import AliasRow, AssetRepository
 # Register criticality words -> canonical A/B/C/D (SPEC-011 design decision).
 _CRITICALITY = {"high": "A", "medium": "C", "low": "D"}
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_EXTERNAL_ID_KEYS = {"external_id", "vendor_path"}
 
 
 def _split_external_id(source: str, tag: str, value: object) -> tuple[str, str | None]:
@@ -33,11 +34,11 @@ def _split_external_id(source: str, tag: str, value: object) -> tuple[str, str |
     register is authoritative input: anything else in the mapping is a bug — fail loudly."""
     if not isinstance(value, dict):
         return str(value), None
-    unknown = sorted(set(value) - {"external_id", "vendor_path"})
+    unknown = sorted(set(value) - _EXTERNAL_ID_KEYS)
     if unknown:
         raise ValueError(
             f"unknown external_ids key(s) {unknown} under source {source!r} in register "
-            f"entry {tag!r}; known: ['external_id', 'vendor_path']")
+            f"entry {tag!r}; known: {sorted(_EXTERNAL_ID_KEYS)}")
     if "external_id" not in value:
         raise ValueError(
             f"missing required key 'external_id' under source {source!r} in register "
