@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 
 # Three WOs at the same location, with distinct reportdates so list_recent ordering is testable.
 _WORK_ORDERS: list[dict[str, Any]] = [
@@ -38,15 +38,26 @@ def _parse_where(where: str | None) -> dict[str, str]:
 
 def build_fake_maximo() -> FastAPI:
     app = FastAPI(title="Maximo OSLC Simulator", version="7.6.1")
+    # Per-app mutable store seeded from the baseline (mirrors the real sim's in-memory upsert).
+    work_orders: dict[str, dict[str, Any]] = {w["wonum"]: dict(w) for w in _WORK_ORDERS}
 
     @app.get("/maxrest/oslc/os/mxwo")
     def mxwo(where: str | None = Query(None, alias="oslc.where")) -> dict[str, Any]:
         conds = _parse_where(where)
         records = [
-            w for w in _WORK_ORDERS
+            w for w in work_orders.values()
             if all(str(w.get(f)) == v for f, v in conds.items())
         ]
         return {"member": records, "responseInfo": {"totalCount": len(records)}}
+
+    @app.post("/maxrest/oslc/os/mxwo")
+    def mxwo_create(record: dict = Body(...)) -> dict[str, Any]:
+        wonum = record.get("wonum")
+        if not wonum:
+            raise HTTPException(status_code=400, detail="wonum required")
+        # idempotent upsert by wonum, exactly like the real sim
+        work_orders[wonum] = {**work_orders.get(wonum, {}), **record}
+        return work_orders[wonum]
 
     return app
 
