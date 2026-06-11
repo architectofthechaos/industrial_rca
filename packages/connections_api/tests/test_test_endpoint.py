@@ -104,3 +104,25 @@ def test_unknown_connector_type_returns_no_probe_failure():
     assert resp.status_code == 200
     assert resp.json()["success"] is False
     assert "no test probe" in (resp.json()["error_summary"] or "")
+
+
+def test_bad_secret_ref_fails_test_with_clear_summary_not_500():
+    """A secret_ref that can't be resolved surfaces as a test failure naming the ref,
+    not an opaque connection error and not a 500 (review fix)."""
+    async def _ok_probe(base_url, timeout, extra_config):
+        return TestConnectionResponse(success=True, checks=[])  # would pass if reached
+
+    repo = InMemoryRepository()
+    client = TestClient(create_app(repo=repo, probes={"pi_historian": _ok_probe}))
+    cid = client.post("/connections", json=_body(
+        auth_config={"type": "basic", "secret_ref": "env:DEFINITELY_MISSING_VAR_XYZ"},
+    )).json()["connection_id"]
+
+    resp = client.post(f"/connections/{cid}/test")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["success"] is False
+    assert "secret_ref resolution failed" in (body["error_summary"] or "")
+    assert "env:DEFINITELY_MISSING_VAR_XYZ" in body["error_summary"]
+    # the probe (which would have succeeded) must NOT have run; status -> error
+    assert client.get(f"/connections/{cid}").json()["status"] == "error"

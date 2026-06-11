@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from rca_connector_sdk import SecretResolver
+from rca_connector_sdk.health import TestConnectionResponse
 from rca_kg.slugs import slug
 
 from rca_mar.repository import (
@@ -152,17 +153,27 @@ def build_router(
             media_type="application/json", status_code=200)
 
     # -- test ----------------------------------------------------------------
-    @router.post("/{connection_id}/test", response_model=None)
-    async def test_connection(connection_id: str):
+    @router.post("/{connection_id}/test", response_model=TestConnectionResponse)
+    async def test_connection(connection_id: str) -> TestConnectionResponse:
         row = await _require(connection_id)
         # Resolve a secret_ref if present — used by the probe, NEVER returned/stored (§1.5).
+        # A bad secret_ref is a real config error: surface it as a test failure (don't 500,
+        # don't silently pass — an opaque "connection refused" would hide the misconfig).
         auth = row.auth_config or {}
         secret_ref = auth.get("secret_ref")
+        result: TestConnectionResponse
         if secret_ref:
             try:
                 secret_resolver.resolve(secret_ref)
-            except Exception:  # noqa: BLE001 — a bad secret_ref shouldn't 500 the test path
-                pass
+            except Exception as exc:  # noqa: BLE001 — boundary: report, never 500
+                result = TestConnectionResponse(
+                    success=False, checks=[],
+                    error_summary=f"secret_ref resolution failed for {secret_ref!r}: {exc}")
+                tested = replace(
+                    row, status="error" if row.status in ("pending", "active") else row.status,
+                    last_tested_at=_utcnow(), last_test_result=result.model_dump())
+                await repo.upsert_connection(tested)
+                return result
         probe = _probe_for(row.connector_type)
         result = await probe(row.base_url, 5.0, row.extra_config)
 

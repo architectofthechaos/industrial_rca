@@ -19,6 +19,10 @@ drives them:
 is the subset PATCH may request directly. ``assert_transition`` validates against the full
 table; ``assert_patch_transition`` additionally rejects endpoint-driven moves so a PATCH
 caller can't, e.g., flip ``pending → active`` and bypass the test gate.
+
+``DELETE`` is the exception to the table: as the terminal operator action it soft-disables
+from ANY status (``pending``/``error``/``active`` → ``disabled``) without going through
+``assert_transition`` — deleting a never-tested connection is always allowed.
 """
 from __future__ import annotations
 
