@@ -26,7 +26,7 @@ tasks:
         packages/connectors/sap_pm/src packages/connectors/maximo/src
         packages/connectors/documents/src packages/connectors/opc_ua/src
         packages/connectors/mqtt/src packages/connectors/asset_hierarchy/src
-        packages/mar/src packages/kg/src
+        packages/mar/src packages/kg/src packages/connections_api/src
 
   parity:pi:
     desc: Run the tag/operator_log parity tests against the REAL PI simulator (starts + tears it down)
@@ -159,3 +159,8 @@ tasks:
       - defer: cd rca_simulator && task down:maximo
       - sleep 4
       - uv run pytest packages/mar/tests/test_mar_wire_parity.py -q -p no:cacheprovider
+
+  api:connections:
+    desc: Serve the Connections REST API (:8200, OpenAPI at /docs) over the configured Postgres MAR
+    cmds:
+      - cd packages/connections_api && uv run uvicorn rca_connections_api.app:create_app --factory --port 8200

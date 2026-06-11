@@ -1,0 +1,35 @@
+[project]
+name = "rca-connections-api"
+version = "0.0.1"
+description = "Connections REST API (Sprint 2b §1) — category-first connector registration, testing, lifecycle."
+requires-python = ">=3.12"
+dependencies = [
+    "rca-mar",
+    "rca-connector-sdk",
+    "rca-contracts",
+    "rca-kg",
+    "rca-connector-pi",
+    "rca-connector-maximo",
+    "rca-connector-documents",
+    "rca-connector-asset-hierarchy",
+    "fastapi>=0.110",
+    "uvicorn",
+    "pydantic>=2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rca_connections_api"]
+
+[tool.uv.sources]
+rca-contracts = { workspace = true }
+rca-connector-sdk = { workspace = true }
+rca-kg = { workspace = true }
+rca-mar = { workspace = true }
+rca-connector-pi = { workspace = true }
+rca-connector-maximo = { workspace = true }
+rca-connector-documents = { workspace = true }
+rca-connector-asset-hierarchy = { workspace = true }
