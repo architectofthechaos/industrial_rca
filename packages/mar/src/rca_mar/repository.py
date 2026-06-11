@@ -10,11 +10,32 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Protocol, runtime_checkable
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from rca_contracts import AssetDescriptor
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class InvalidTransition(Exception):
+    """An illegal resolution_status transition on an asset_aliases row (Sprint 2b §4.1).
+
+    The Resolution Queue write paths (validate/reject/supersede) refuse to move a binding out
+    of a terminal state — `rejected` and `superseded` rows cannot be re-opened (the correct
+    move is to create a NEW binding). The API layer maps this to a 409. This is distinct from
+    the connections-status `InvalidTransition` in connections_api.state_machine.
+    """
+
+    def __init__(self, alias_id: UUID, current: str, target: str) -> None:
+        self.alias_id = alias_id
+        self.current = current
+        self.target = target
+        super().__init__(
+            f"alias {alias_id} cannot transition {current!r} -> {target!r}")
 
 
 class DuplicateActiveConnection(Exception):
@@ -50,8 +71,6 @@ class ConnectionRow:
 
 @dataclass(frozen=True)
 class AliasRow:
-    # Invariant: AliasRow omits resolved_at/validated_by/validated_at; it is therefore
-    # never used to rewrite human_validated rows (those are protected in resolution.py).
     asset_id: UUID
     tenant_id: UUID
     connection_id: str
@@ -69,6 +88,15 @@ class AliasRow:
     vendor_metadata: dict[str, Any] | None = None
     confirmed_by: str | None = None
     notes: str | None = None
+    # Resolution Queue fields (Sprint 2b §4.1). The auto-resolver path (resolution.py) never
+    # sets validated_by/validated_at — only the human review write paths do, so an auto path
+    # can never forge a human_validated provenance. `alias_id` is None for rows the resolver
+    # constructs (the repo mints one on upsert); it is populated on rows read back from the
+    # store so the write paths can address a specific binding by id.
+    alias_id: UUID | None = None
+    validated_by: str | None = None
+    validated_at: datetime | None = None
+    resolved_at: datetime | None = None
 
 
 @runtime_checkable
@@ -91,6 +119,17 @@ class AssetRepository(Protocol):
                                 payload: dict[str, Any] | None) -> None: ...
     async def upsert_asset(self, asset: AssetDescriptor) -> None: ...
     async def upsert_alias(self, alias: AliasRow) -> None: ...
+    # Resolution Queue write paths (Sprint 2b §4.1).
+    async def get_alias(self, alias_id: UUID) -> AliasRow | None: ...
+    async def validate_binding(self, alias_id: UUID, validated_by: str) -> AliasRow: ...
+    async def reject_binding(self, alias_id: UUID, rejected_by: str, reason: str) -> AliasRow: ...
+    async def supersede_binding(self, alias_id: UUID, *,
+                                superseded_by_alias_id: UUID | None = None,
+                                system_initiated: bool = False) -> AliasRow: ...
+    async def list_pending_bindings(self, tenant: UUID, *, plant_id: str | None = None,
+                                    connection_id: str | None = None,
+                                    limit: int = 50) -> list[AliasRow]: ...
+    async def resolution_stats(self, tenant: UUID) -> list[dict[str, Any]]: ...
     # Connection CRUD (Sprint 2b §1.1).
     async def upsert_connection(self, conn: ConnectionRow) -> None: ...
     async def get_connection(self, connection_id: str) -> ConnectionRow | None: ...
@@ -142,7 +181,101 @@ class InMemoryRepository:
                 and a.valid_to is None)
             else a
             for a in self.aliases]
-        self.aliases.append(alias)
+        # The PG row always has an alias_id PK and a resolved_at; mint them here so a row read
+        # back via get_alias is addressable by id (matching the live DB).
+        stored = replace(
+            alias,
+            alias_id=alias.alias_id or uuid4(),
+            resolved_at=alias.resolved_at or _utcnow())
+        self.aliases.append(stored)
+
+    def _get_alias_index(self, alias_id: UUID) -> int | None:
+        for i, a in enumerate(self.aliases):
+            if a.alias_id == alias_id:
+                return i
+        return None
+
+    async def get_alias(self, alias_id: UUID) -> AliasRow | None:
+        i = self._get_alias_index(alias_id)
+        return self.aliases[i] if i is not None else None
+
+    async def validate_binding(self, alias_id: UUID, validated_by: str) -> AliasRow:
+        i = self._get_alias_index(alias_id)
+        if i is None:
+            raise KeyError(alias_id)
+        row = self.aliases[i]
+        if row.resolution_status == "human_validated":
+            return row  # idempotent: re-validating an already-validated row is a no-op
+        if row.resolution_status in ("rejected", "superseded"):
+            raise InvalidTransition(alias_id, row.resolution_status, "human_validated")
+        updated = replace(row, resolution_status="human_validated",
+                          validated_by=validated_by, validated_at=_utcnow())
+        self.aliases[i] = updated
+        return updated
+
+    async def reject_binding(self, alias_id: UUID, rejected_by: str, reason: str) -> AliasRow:
+        i = self._get_alias_index(alias_id)
+        if i is None:
+            raise KeyError(alias_id)
+        row = self.aliases[i]
+        now = _utcnow()
+        if row.resolution_status == "rejected":
+            return row  # idempotent re-reject: leave the original stamp/notes untouched
+        if row.resolution_status == "human_validated":
+            raise InvalidTransition(alias_id, row.resolution_status, "rejected")
+        note = f"rejected: {reason}"
+        notes = f"{row.notes}\n{note}" if row.notes else note
+        updated = replace(row, resolution_status="rejected", valid_to=row.valid_to or now,
+                          validated_by=rejected_by, validated_at=now, notes=notes)
+        self.aliases[i] = updated
+        return updated
+
+    async def supersede_binding(self, alias_id: UUID, *,
+                                superseded_by_alias_id: UUID | None = None,
+                                system_initiated: bool = False) -> AliasRow:
+        i = self._get_alias_index(alias_id)
+        if i is None:
+            raise KeyError(alias_id)
+        row = self.aliases[i]
+        now = _utcnow()
+        if row.resolution_status == "superseded":
+            return row  # idempotent
+        by = "system" if system_initiated else "review"
+        note = (f"superseded by {superseded_by_alias_id} ({by})"
+                if superseded_by_alias_id else f"superseded ({by})")
+        notes = f"{row.notes}\n{note}" if row.notes else note
+        updated = replace(row, resolution_status="superseded", valid_to=row.valid_to or now,
+                          notes=notes)
+        self.aliases[i] = updated
+        return updated
+
+    async def list_pending_bindings(self, tenant, *, plant_id=None, connection_id=None, limit=50):
+        out: list[AliasRow] = []
+        for a in self.aliases:
+            if a.tenant_id != tenant or a.resolution_status != "pending_review":
+                continue
+            if a.valid_to is not None:
+                continue
+            if connection_id is not None and a.connection_id != connection_id:
+                continue
+            if plant_id is not None:
+                asset = self.assets.get((tenant, a.asset_id))
+                if asset is None or asset.plant_id != plant_id:
+                    continue
+            out.append(a)
+            if len(out) >= limit:
+                break
+        return out
+
+    async def resolution_stats(self, tenant):
+        counts: dict[tuple[str, str], int] = {}
+        for a in self.aliases:
+            if a.tenant_id != tenant:
+                continue
+            key = (a.connection_id, a.resolution_status)
+            counts[key] = counts.get(key, 0) + 1
+        return [{"connection_id": cid, "resolution_status": status, "count": n}
+                for (cid, status), n in sorted(counts.items())]
 
     async def find_active_alias(self, tenant, connection_id, external_id, *, valid_at):
         for a in self.aliases:
@@ -236,4 +369,4 @@ class InMemoryRepository:
 
 
 __all__ = ["AssetRepository", "AliasRow", "ConnectionRow", "DuplicateActiveConnection",
-           "InMemoryRepository"]
+           "InvalidTransition", "InMemoryRepository"]

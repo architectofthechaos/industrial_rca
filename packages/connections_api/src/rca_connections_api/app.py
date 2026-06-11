@@ -12,6 +12,8 @@ activating a connection only writes the connections table.
 """
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import FastAPI
 from rca_connector_sdk import EnvSecretResolver, SecretResolver
 
@@ -19,6 +21,11 @@ from rca_mar.repository import AssetRepository
 
 from .connections_router import build_router
 from .registry import Probe
+from .resolution_router import build_resolution_router
+
+# Single-tenant MVP default (matches the seed `tenant_id` and `make_mar_mcp`'s build param).
+# The Resolution Queue endpoints scope to this tenant; per-request tenancy is out of scope.
+DEFAULT_TENANT_ID = UUID("0190d3c9-0000-7000-8000-0000000000ff")
 
 
 def create_app(
@@ -26,6 +33,7 @@ def create_app(
     *,
     secret_resolver: SecretResolver | None = None,
     probes: dict[str, Probe] | None = None,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> FastAPI:
     if repo is None:
         repo = _postgres_repo()
@@ -34,6 +42,7 @@ def create_app(
     app = FastAPI(title="RCA Connections API", version="0.0.1")
     app.include_router(
         build_router(repo=repo, secret_resolver=resolver, probes=probes))
+    app.include_router(build_resolution_router(repo=repo, tenant_id=tenant_id))
     return app
 
 
@@ -51,4 +60,4 @@ def _postgres_repo() -> AssetRepository:
     return PostgresRepository(session_factory)
 
 
-__all__ = ["create_app"]
+__all__ = ["create_app", "DEFAULT_TENANT_ID"]

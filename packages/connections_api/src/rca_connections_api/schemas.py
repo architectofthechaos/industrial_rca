@@ -9,11 +9,12 @@ never serialized into any response body.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from rca_mar.repository import ConnectionRow
+from rca_mar.repository import AliasRow, ConnectionRow
 
 # The category vocabulary (Sprint 2b): hierarchy / historian / cmms / document / operator_log.
 Category = Literal["hierarchy", "historian", "cmms", "document", "operator_log"]
@@ -102,8 +103,78 @@ class CategoryConflict(BaseModel):
     conflicting_connection_id: str
 
 
+# -- Resolution Queue (Sprint 2b §4.2) -------------------------------------------------------
+
+class PendingBindingResponse(BaseModel):
+    """A pending-review asset binding awaiting human judgment (Sprint 2b §4.2).
+
+    Surfaces ``candidate_alternatives`` (every candidate the resolver considered) so a reviewer
+    can accept the current binding or pick an alternative. ``canonical_id`` is the canonical id
+    of the currently-bound asset when it can be resolved cheaply, else null.
+    """
+
+    alias_id: UUID
+    asset_id: UUID
+    canonical_id: str | None = None
+    connection_id: str
+    external_id: str
+    resolution_status: str
+    confidence: float
+    mapping_source: str
+    candidate_alternatives: list[dict[str, Any]] | None = None
+    valid_from: datetime
+    valid_to: datetime | None = None
+    validated_by: str | None = None
+    validated_at: datetime | None = None
+
+    @classmethod
+    def from_alias(cls, row: AliasRow, *, canonical_id: str | None = None
+                   ) -> PendingBindingResponse:
+        return cls(
+            alias_id=row.alias_id,  # type: ignore[arg-type]  # always set on rows read from store
+            asset_id=row.asset_id,
+            canonical_id=canonical_id,
+            connection_id=row.connection_id,
+            external_id=row.external_id,
+            resolution_status=row.resolution_status,
+            confidence=row.confidence,
+            mapping_source=row.mapping_source,
+            candidate_alternatives=row.candidate_alternatives,
+            valid_from=row.valid_from,
+            valid_to=row.valid_to,
+            validated_by=row.validated_by,
+            validated_at=row.validated_at,
+        )
+
+
+class ValidateBindingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    validated_by: str
+    # When set and DIFFERENT from the bound asset's canonical_id, the current binding is
+    # superseded and a new manual human_validated binding is created to the chosen alternative.
+    accepted_canonical_id: str | None = None
+
+
+class RejectBindingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rejected_by: str
+    reason: str
+
+
+class ResolutionStatRow(BaseModel):
+    """One aggregate count of bindings by (connection_id, resolution_status) (§4.2)."""
+
+    connection_id: str
+    resolution_status: str
+    count: int
+
+
 __all__ = [
     "Category", "Status", "AuthType", "AuthConfig",
     "CreateConnectionRequest", "UpdateConnectionRequest", "ConnectionResponse",
     "CategoryConflict",
+    "PendingBindingResponse", "ValidateBindingRequest", "RejectBindingRequest",
+    "ResolutionStatRow",
 ]

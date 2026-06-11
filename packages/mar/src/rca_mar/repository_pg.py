@@ -11,7 +11,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from rca_contracts import AssetDescriptor
 
 from .models import Asset, AssetAlias, AssetAliasUnresolved, Connection
-from .repository import AliasRow, ConnectionRow, DuplicateActiveConnection
+from .repository import (
+    AliasRow,
+    ConnectionRow,
+    DuplicateActiveConnection,
+    InvalidTransition,
+    _utcnow,
+)
 
 
 def _to_descriptor(a: Asset) -> AssetDescriptor:
@@ -34,7 +40,9 @@ def _to_aliasrow(a: AssetAlias) -> AliasRow:
                     resolution_status=a.resolution_status,
                     candidate_alternatives=a.candidate_alternatives, resolved_by=a.resolved_by,
                     vendor_path=a.vendor_path, vendor_metadata=a.vendor_metadata,
-                    confirmed_by=a.confirmed_by, notes=a.notes)
+                    confirmed_by=a.confirmed_by, notes=a.notes,
+                    alias_id=a.alias_id, validated_by=a.validated_by,
+                    validated_at=a.validated_at, resolved_at=a.resolved_at)
 
 
 def _to_connectionrow(c: Connection) -> ConnectionRow:
@@ -69,8 +77,9 @@ class PostgresRepository:
                             AssetAlias.external_id == alias.external_id,
                             AssetAlias.valid_to.is_(None)))
                 .values(valid_to=alias.valid_from))
-            await s.execute(pg_insert(AssetAlias).values(
-                alias_id=uuid4(), asset_id=alias.asset_id, tenant_id=alias.tenant_id,
+            values = dict(
+                alias_id=alias.alias_id or uuid4(), asset_id=alias.asset_id,
+                tenant_id=alias.tenant_id,
                 connection_id=alias.connection_id,
                 external_id=alias.external_id,
                 valid_from=alias.valid_from, valid_to=alias.valid_to,
@@ -80,7 +89,96 @@ class PostgresRepository:
                 resolved_by=alias.resolved_by, vendor_path=alias.vendor_path,
                 vendor_metadata=alias.vendor_metadata,
                 is_primary=alias.is_primary,
-                confirmed_by=alias.confirmed_by, notes=alias.notes))
+                confirmed_by=alias.confirmed_by, notes=alias.notes,
+                # validated_by/at are normally None on the resolver path; the review
+                # write paths set them when minting a human_validated binding directly.
+                validated_by=alias.validated_by, validated_at=alias.validated_at)
+            if alias.resolved_at is not None:
+                values["resolved_at"] = alias.resolved_at
+            await s.execute(pg_insert(AssetAlias).values(**values))
+
+    async def get_alias(self, alias_id):
+        async with self._sf() as s:
+            q = select(AssetAlias).where(AssetAlias.alias_id == alias_id)
+            row = (await s.execute(q)).scalar_one_or_none()
+            return _to_aliasrow(row) if row else None
+
+    async def _load_alias(self, s, alias_id) -> AssetAlias:
+        row = (await s.execute(
+            select(AssetAlias).where(AssetAlias.alias_id == alias_id))).scalar_one_or_none()
+        if row is None:
+            raise KeyError(alias_id)
+        return row
+
+    async def validate_binding(self, alias_id, validated_by):
+        async with self._sf() as s, s.begin():
+            row = await self._load_alias(s, alias_id)
+            if row.resolution_status == "human_validated":
+                return _to_aliasrow(row)  # idempotent no-op
+            if row.resolution_status in ("rejected", "superseded"):
+                raise InvalidTransition(alias_id, row.resolution_status, "human_validated")
+            row.resolution_status = "human_validated"
+            row.validated_by = validated_by
+            row.validated_at = _utcnow()
+            await s.flush()
+            return _to_aliasrow(row)
+
+    async def reject_binding(self, alias_id, rejected_by, reason):
+        async with self._sf() as s, s.begin():
+            row = await self._load_alias(s, alias_id)
+            now = _utcnow()
+            if row.resolution_status == "rejected":
+                return _to_aliasrow(row)  # idempotent re-reject
+            if row.resolution_status == "human_validated":
+                raise InvalidTransition(alias_id, row.resolution_status, "rejected")
+            note = f"rejected: {reason}"
+            row.notes = f"{row.notes}\n{note}" if row.notes else note
+            row.resolution_status = "rejected"
+            row.valid_to = row.valid_to or now
+            row.validated_by = rejected_by
+            row.validated_at = now
+            await s.flush()
+            return _to_aliasrow(row)
+
+    async def supersede_binding(self, alias_id, *, superseded_by_alias_id=None,
+                                system_initiated=False):
+        async with self._sf() as s, s.begin():
+            row = await self._load_alias(s, alias_id)
+            now = _utcnow()
+            if row.resolution_status == "superseded":
+                return _to_aliasrow(row)  # idempotent
+            by = "system" if system_initiated else "review"
+            note = (f"superseded by {superseded_by_alias_id} ({by})"
+                    if superseded_by_alias_id else f"superseded ({by})")
+            row.notes = f"{row.notes}\n{note}" if row.notes else note
+            row.resolution_status = "superseded"
+            row.valid_to = row.valid_to or now
+            await s.flush()
+            return _to_aliasrow(row)
+
+    async def list_pending_bindings(self, tenant, *, plant_id=None, connection_id=None, limit=50):
+        async with self._sf() as s:
+            q = select(AssetAlias).where(and_(
+                AssetAlias.tenant_id == tenant,
+                AssetAlias.resolution_status == "pending_review",
+                AssetAlias.valid_to.is_(None)))
+            if connection_id is not None:
+                q = q.where(AssetAlias.connection_id == connection_id)
+            if plant_id is not None:
+                q = q.join(Asset, Asset.asset_id == AssetAlias.asset_id).where(
+                    Asset.plant_id == plant_id)
+            rows = (await s.execute(q.limit(limit))).scalars()
+            return [_to_aliasrow(r) for r in rows]
+
+    async def resolution_stats(self, tenant):
+        async with self._sf() as s:
+            q = (select(AssetAlias.connection_id, AssetAlias.resolution_status,
+                        func.count().label("count"))
+                 .where(AssetAlias.tenant_id == tenant)
+                 .group_by(AssetAlias.connection_id, AssetAlias.resolution_status)
+                 .order_by(AssetAlias.connection_id, AssetAlias.resolution_status))
+            return [{"connection_id": cid, "resolution_status": status, "count": int(n)}
+                    for cid, status, n in (await s.execute(q)).all()]
 
     async def find_active_alias(self, tenant, connection_id, external_id, *, valid_at):
         async with self._sf() as s:
