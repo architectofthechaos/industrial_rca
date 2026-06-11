@@ -10,6 +10,8 @@ Tools:
 * work_order.list_for_asset{canonical_id} -> list[WorkOrder]  (cmms location via AssetGateway)
 * work_order.get{work_order_id, plant_id} -> WorkOrder        (single WO by wonum)
 * work_order.list_recent{plant_id, limit} -> list[WorkOrder]  (newest-first by reportdate)
+* work_order.create{...} -> WorkOrder        (Sprint 3 WI6 — follow-up WO; POSTs mxwo,
+  deterministic wonum from references for idempotency)
 
 The WorkOrder translation (Maximo member dict -> canonical WorkOrder) is reused verbatim
 from the old maximo connector. WorkOrder.asset_id is a required AssetID (UUID); at connector
@@ -39,12 +41,19 @@ from rca_connector_sdk import (
 from rca_contracts import ToolResponse, WorkOrder, parse_canonical_id
 
 from .health import WorkOrderHealthProbe
-from .models import GetWorkOrderRequest, ListForAssetRequest, ListRecentRequest
+from .models import (
+    CreateWorkOrderRequest,
+    GetWorkOrderRequest,
+    ListForAssetRequest,
+    ListRecentRequest,
+)
 
 _VERSION = "0.1.0"
 _SOURCE = "maximo"
 _CAT_CMMS = "cmms"
 _OSLC = "/maxrest/oslc/os"
+# Maximo worktype codes the sim recognizes (PM=preventive, CM=corrective, INSP=inspection).
+_WORK_TYPE_MAP = {"PM": "PM", "CM": "CM", "INSPECTION": "INSP", "INSP": "INSP"}
 # Maximo emits local-time-without-TZ reportdates; this is the reference site tz. (A future
 # MAR/connection binding can carry per-connection timezone; MVP uses the fleet default.)
 _SOURCE_TZ = "America/Chicago"   # TODO(track1): source from ConnectionInfo.extra_config
@@ -94,6 +103,16 @@ def _member_to_workorder(m: dict, asset_id: UUID, tz: str) -> WorkOrder:
 def _stamp_asset_id(key: str) -> UUID:
     """Deterministic stand-in AssetID until MAR binds the real UUID (see module docstring)."""
     return uuid5(NAMESPACE_URL, key)
+
+
+def _mint_wonum(references: dict) -> str:
+    """Deterministic wonum from (probe_run_id, conclusion_id) so re-running the close phase
+    upserts the SAME WO (§6.3 idempotency). The Maximo sim upserts by wonum, so a stable
+    wonum means a second POST overwrites rather than duplicates."""
+    probe_run_id = references.get("probe_run_id", "")
+    conclusion_id = references.get("conclusion_id", "")
+    digest = uuid5(NAMESPACE_URL, f"rca-wo:{probe_run_id}:{conclusion_id}").hex[:10].upper()
+    return f"WO-RCA-{digest}"
 
 
 def make_work_order_mcp(
@@ -193,6 +212,45 @@ def make_work_order_mcp(
                 record_count=len(work_orders),
                 raw_tags=[w.work_order_id for w in work_orders],
                 connection_id=conn.connection_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return envelope.fail(map_source_error(exc))
+
+    @mcp.tool(name="work_order.create")
+    async def create(request: CreateWorkOrderRequest) -> ToolResponse[WorkOrder]:
+        envelope = ToolResponse[WorkOrder]
+        try:
+            plant_id = parse_canonical_id(request.canonical_id).plant_id
+            conn = await router.active(plant_id, _CAT_CMMS, request.connection_id)
+            location = await gateway.source_handle(request.canonical_id, _CAT_CMMS)
+            wonum = _mint_wonum(request.references)
+            worktype = _WORK_TYPE_MAP.get(request.work_type.upper(), "CM")
+            reported = (request.reported_at or datetime.now(timezone.utc))
+            # Maximo emits/accepts local-time-without-tz reportdates; mirror that for round-trip.
+            record = {
+                "wonum": wonum,
+                "location": location,
+                "description": request.description,
+                "worktype": worktype,
+                "wopriority": request.priority,
+                "status": "WAPPR",                 # created, waiting approval (not yet COMP)
+                "reportdate": reported.astimezone(timezone.utc)
+                .replace(tzinfo=None).isoformat(),
+                "rca_probe_run_id": request.references.get("probe_run_id"),
+                "rca_conclusion_id": request.references.get("conclusion_id"),
+                "rca_failure_event_id": request.references.get("failure_event_id"),
+                "reportedby": request.requested_by,
+            }
+            asset_id = _stamp_asset_id(request.canonical_id)
+            async with factory(conn.base_url) as client:
+                resp = await client.post(f"{_OSLC}/mxwo", json=record)
+                resp.raise_for_status()
+                created = resp.json()
+            work_order = _member_to_workorder(created, asset_id, _SOURCE_TZ)
+            return ok_response(
+                work_order, tool="work_order.create", version=_VERSION, source=_SOURCE,
+                source_query=str(resp.request.url), record_count=1,
+                raw_tags=[wonum, location], connection_id=conn.connection_id,
             )
         except Exception as exc:  # noqa: BLE001
             return envelope.fail(map_source_error(exc))

@@ -7,11 +7,28 @@ carries a base_url: the connection registry owns endpoints, not the caller.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel
+from datetime import datetime
+
+from pydantic import BaseModel, Field
 
 
 class ListForAssetRequest(BaseModel):
     canonical_id: str
+    connection_id: str | None = None
+
+
+class CreateWorkOrderRequest(BaseModel):
+    """Additive write tool (Sprint 3 WI6.4). The wonum (vendor_id) is minted
+    deterministically from references.{probe_run_id, conclusion_id} so re-running the
+    close phase upserts the SAME work order (idempotent, §6.3)."""
+
+    canonical_id: str
+    description: str
+    priority: str                          # already mapped from RecommendedAction.priority
+    work_type: str                         # "PM" | "CM" | "INSPECTION"
+    references: dict = Field(default_factory=dict)   # {probe_run_id, conclusion_id, failure_event_id}
+    requested_by: str                      # engineer user id (from HitlResponse.responded_by)
+    reported_at: datetime | None = None    # workflow-frozen reference_time (determinism, risk #8)
     connection_id: str | None = None
 
 
@@ -27,4 +44,7 @@ class ListRecentRequest(BaseModel):
     connection_id: str | None = None
 
 
-__all__ = ["ListForAssetRequest", "GetWorkOrderRequest", "ListRecentRequest"]
+__all__ = [
+    "ListForAssetRequest", "GetWorkOrderRequest", "ListRecentRequest",
+    "CreateWorkOrderRequest",
+]

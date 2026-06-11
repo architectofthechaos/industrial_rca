@@ -1,0 +1,34 @@
+[project]
+name = "rca-agents"
+version = "0.0.1"
+description = "LangGraph agent foundation + planning/gather/RCA agents + probe Temporal workflow (Sprint 3 WI2-6)."
+requires-python = ">=3.12"
+dependencies = [
+    "rca-contracts",
+    "rca-connector-sdk",
+    "rca-llm",
+    "rca-mar",
+    "rca-kg",
+    "temporalio>=1.28",
+    "httpx",
+    "pydantic>=2",
+]
+
+# LangGraph is imported lazily by the graph builders; the leg-pattern foundation + the
+# deterministic hermetic tests run without it. Install via the 'graph' extra for live graphs.
+[project.optional-dependencies]
+graph = ["langgraph>=0.2", "langchain-core>=0.3"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rca_agents"]
+
+[tool.uv.sources]
+rca-contracts = { workspace = true }
+rca-connector-sdk = { workspace = true }
+rca-llm = { workspace = true }
+rca-mar = { workspace = true }
+rca-kg = { workspace = true }

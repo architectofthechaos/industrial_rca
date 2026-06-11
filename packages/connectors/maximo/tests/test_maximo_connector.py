@@ -62,9 +62,45 @@ async def test_work_order_tool_set_has_no_maximo_prefix():
         names = {t.name for t in await client.list_tools()}
     assert names == {
         "work_order.list_for_asset", "work_order.get", "work_order.list_recent",
-        "test_connection",
+        "work_order.create", "test_connection",
     }
     assert not any(n.startswith("maximo.") for n in names)
+
+
+async def test_work_order_create_posts_and_is_idempotent():
+    refs = {"probe_run_id": "pr-1", "conclusion_id": "c-1", "failure_event_id": "fe-1"}
+    body = {"request": {
+        "canonical_id": CANONICAL, "description": "Replace mechanical seal at next shutdown",
+        "priority": "2", "work_type": "CM", "references": refs,
+        "requested_by": "eng@x.com", "reported_at": "2026-03-30T12:00:00+00:00"}}
+    async with Client(_mcp()) as client:
+        first = _parse(await client.call_tool("work_order.create", body), WorkOrder)
+        assert first.error is None and first.data is not None
+        assert first.data.work_order_id.startswith("WO-RCA-")
+        assert first.data.source_system == "maximo"
+        assert first.provenance.connection_id == CONNECTION_ID
+        # re-run with the same references returns the SAME vendor_id (G/§6.3 idempotency)
+        second = _parse(await client.call_tool("work_order.create", body), WorkOrder)
+        assert second.data.work_order_id == first.data.work_order_id
+
+        # the created WO is now retrievable by wonum (round-trip through the sim store)
+        got = _parse(await client.call_tool("work_order.get", {"request": {
+            "work_order_id": first.data.work_order_id, "plant_id": PLANT}}), WorkOrder)
+        assert got.error is None
+        assert got.data.description == "Replace mechanical seal at next shutdown"
+
+
+async def test_work_order_create_different_conclusions_get_distinct_wonums():
+    async with Client(_mcp()) as client:
+        a = _parse(await client.call_tool("work_order.create", {"request": {
+            "canonical_id": CANONICAL, "description": "a", "priority": "1", "work_type": "CM",
+            "references": {"probe_run_id": "pr-1", "conclusion_id": "c-1"},
+            "requested_by": "e@x.com"}}), WorkOrder)
+        b = _parse(await client.call_tool("work_order.create", {"request": {
+            "canonical_id": CANONICAL, "description": "b", "priority": "1", "work_type": "CM",
+            "references": {"probe_run_id": "pr-1", "conclusion_id": "c-2"},
+            "requested_by": "e@x.com"}}), WorkOrder)
+    assert a.data.work_order_id != b.data.work_order_id
 
 
 async def test_work_order_list_for_asset_returns_workorders():

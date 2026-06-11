@@ -9,6 +9,7 @@ Assets are MAR's, never the KG's, to return (Phase 1 spec §1.4).
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from fastmcp import FastMCP
@@ -16,6 +17,7 @@ from pydantic import BaseModel, Field
 from rca_connector_sdk import NotFound, build_server, map_source_error, ok_response
 from rca_contracts import ToolError, ToolResponse
 
+from .assets import AssetContext, AssetGraph, InvalidFailureModePair
 from .queries import KgGateway
 
 _VERSION = "0.1.0"
@@ -41,6 +43,30 @@ class FindPathRequest(BaseModel):
     from_id: str
     to_id: str
     max_hops: int = 6
+
+
+class UpsertAssetRequest(BaseModel):
+    canonical_id: str                    # MUST match the Sprint-1 canonical regex (G4)
+    name: str
+    iso14224_class: str                  # ontology EquipmentClass id, e.g. "bb1"
+    iso14224_class_confidence: float
+    iso14224_class_method: str           # "register" | "rule:<id>" | "llm_v1"
+    reference_time: datetime             # workflow-frozen; sets materialized_at/last_probed_at
+
+
+class LinkFailureModeRequest(BaseModel):
+    canonical_id: str
+    failure_mode_code: str               # ISO code, validated against the ontology before write
+
+
+class GetAssetContextRequest(BaseModel):
+    canonical_id: str
+    iso14224_class: str | None = None    # fallback class when the Asset isn't materialized yet
+
+
+class UpsertAssetResult(BaseModel):
+    canonical_id: str
+    created: bool                        # True on first materialization, False on re-upsert
 
 
 class OntologyNode(BaseModel):
@@ -96,7 +122,7 @@ def _build_tree(rows: list[dict[str, Any]]) -> HierarchyNode:
     return roots[0]
 
 
-def make_kg_mcp(*, gateway: KgGateway) -> FastMCP:
+def make_kg_mcp(*, gateway: KgGateway, asset_graph: AssetGraph | None = None) -> FastMCP:
     mcp = build_server("kg")
 
     @mcp.tool(name="kg.get_ontology_node")
@@ -176,7 +202,62 @@ def make_kg_mcp(*, gateway: KgGateway) -> FastMCP:
         except Exception as exc:  # noqa: BLE001
             return _fail(envelope, exc)
 
+    # --- Sprint 3 asset-layer tools (registered only when an AssetGraph is wired) ---
+    if asset_graph is not None:
+        _register_asset_tools(mcp, asset_graph)
+
     return mcp
+
+
+def _register_asset_tools(mcp: FastMCP, asset_graph: AssetGraph) -> None:
+    @mcp.tool(name="kg.upsert_asset")
+    async def upsert_asset(request: UpsertAssetRequest) -> ToolResponse[UpsertAssetResult]:
+        envelope = ToolResponse[UpsertAssetResult]
+        try:
+            created = await asset_graph.upsert_asset(
+                canonical_id=request.canonical_id, name=request.name,
+                iso14224_class=request.iso14224_class,
+                iso14224_class_confidence=request.iso14224_class_confidence,
+                iso14224_class_method=request.iso14224_class_method,
+                probed_at=request.reference_time)
+            result = UpsertAssetResult(canonical_id=request.canonical_id, created=created)
+            return ok_response(result, tool="kg.upsert_asset", version=_VERSION, source=_SOURCE,
+                               source_query=f"upsert_asset {request.canonical_id}",
+                               record_count=1, raw_tags=[request.canonical_id])
+        except Exception as exc:  # noqa: BLE001
+            return _fail(envelope, exc)
+
+    @mcp.tool(name="kg.link_failure_mode")
+    async def link_failure_mode(request: LinkFailureModeRequest) -> ToolResponse[dict]:
+        envelope = ToolResponse[dict]
+        try:
+            await asset_graph.link_failure_mode(
+                canonical_id=request.canonical_id,
+                failure_mode_code=request.failure_mode_code)
+            return ok_response(
+                {"canonical_id": request.canonical_id,
+                 "failure_mode_code": request.failure_mode_code, "linked": True},
+                tool="kg.link_failure_mode", version=_VERSION, source=_SOURCE,
+                source_query=f"link {request.canonical_id} {request.failure_mode_code}",
+                record_count=1, raw_tags=[request.canonical_id])
+        except InvalidFailureModePair as exc:
+            return envelope.fail(ToolError(code="validation_failed", message=str(exc),
+                                           retryable=False))
+        except Exception as exc:  # noqa: BLE001
+            return _fail(envelope, exc)
+
+    @mcp.tool(name="kg.get_asset_context")
+    async def get_asset_context(request: GetAssetContextRequest) -> ToolResponse[AssetContext]:
+        envelope = ToolResponse[AssetContext]
+        try:
+            ctx = await asset_graph.get_asset_context(
+                canonical_id=request.canonical_id, iso14224_class=request.iso14224_class)
+            return ok_response(ctx, tool="kg.get_asset_context", version=_VERSION,
+                               source=_SOURCE,
+                               source_query=f"asset_context {request.canonical_id}",
+                               record_count=1, raw_tags=[request.canonical_id])
+        except Exception as exc:  # noqa: BLE001
+            return _fail(envelope, exc)
 
 
 __all__ = [
@@ -184,4 +265,7 @@ __all__ = [
     "GetOntologyNodeRequest", "ListFailureModesRequest", "GetHierarchyRequest",
     "FindPathRequest",
     "OntologyNode", "FailureModeEntry", "HierarchyNode", "PathSegment",
+    # Sprint 3 asset-layer tools
+    "UpsertAssetRequest", "LinkFailureModeRequest", "GetAssetContextRequest",
+    "UpsertAssetResult",
 ]

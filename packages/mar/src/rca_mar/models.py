@@ -199,3 +199,131 @@ class OnboardingRun(Base):
     __table_args__ = (
         Index("ix_onboarding_runs_plant_status", "plant_id", "status"),
     )
+
+
+# --------------------------------------------------------------------------------------
+# Sprint 3 — probe data layer (WI1/WI2/WI4/WI5). These stay in the MAR Alembic chain so the
+# probe/agent tables migrate alongside connections/onboarding_runs (same pattern as above).
+# --------------------------------------------------------------------------------------
+class ProbeRun(Base):
+    """One end-to-end probe (mirrors OnboardingRun; G17/G18 status set)."""
+
+    __tablename__ = "probe_runs"
+    probe_run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(Text, nullable=False)
+    plant_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    reference_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    requested_by: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    phase: Mapped[str | None] = mapped_column(Text, nullable=True)
+    final_canonical_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    followup_wo: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    errors: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("ix_probe_runs_plant_status", "plant_id", "status"),)
+
+
+class ProbeMemory(Base):
+    """The 3-layer model's Postgres UI snapshot (§2.4). One row per probe; nulled on archive."""
+
+    __tablename__ = "probe_memory"
+    probe_run_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("probe_runs.probe_run_id"), primary_key=True)
+    conversation: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    current_plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    plan_history: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    working_knowledge: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    agent_scratchpad: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    last_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ProbeGraphState(Base):
+    """Large-state escape hatch (§2.5) — heavy graph state spilled out of the activity result."""
+
+    __tablename__ = "probe_graph_state"
+    probe_run_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("probe_runs.probe_run_id"), primary_key=True)
+    ref: Mapped[str] = mapped_column(Text, primary_key=True)
+    state: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
+class EvidencePackageRow(Base):
+    """Persisted Evidence Package (§4.4 / G16)."""
+
+    __tablename__ = "evidence_packages"
+    evidence_package_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    probe_run_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("probe_runs.probe_run_id"), nullable=False, index=True)
+    canonical_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    investigated_failure_modes: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    schema_version: Mapped[str] = mapped_column(Text, nullable=False, default="v1")
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    assembled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class RcaConclusionRow(Base):
+    """Persisted RCA conclusion incl. rejected ones (§5.6 — flywheel signal)."""
+
+    __tablename__ = "rca_conclusions"
+    conclusion_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    probe_run_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("probe_runs.probe_run_id"), nullable=False)
+    evidence_package_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    canonical_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    agent_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    agent_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    schema_version: Mapped[str] = mapped_column(Text, nullable=False, default="v1")
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    llm_call_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class LlmCall(Base):
+    """Audit row for every LLMClient.complete call (§1.4)."""
+
+    __tablename__ = "llm_calls"
+    llm_call_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    correlation_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    probe_run_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), nullable=True, index=True)
+    prompt_name: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    model_version: Mapped[str] = mapped_column(Text, nullable=False)
+    temperature: Mapped[float] = mapped_column(Float, nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    cached: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    request_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    response_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
+class DocumentEmbedding(Base):
+    """Content-addressed document embedding cache (§4.1 score_documents).
+
+    NOTE: ``embedding`` is JSONB here (portable on any Postgres). The pgvector extension + a
+    native ``vector`` column is provisioned by migration 0005 for future similarity search but
+    is not yet used by the (keyword-overlap) prototype scorer."""
+
+    __tablename__ = "document_embeddings"
+    content_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    model: Mapped[str] = mapped_column(Text, primary_key=True)
+    document_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow)
