@@ -29,7 +29,7 @@
 | `plant_id`            | TEXT        | Plant scope                                                                 |
 | `display_name`        | TEXT        | Human-readable equipment tag, e.g. `P-2103A`                                |
 | `asset_class`         | TEXT        | Links to ISO 14224 ontology, e.g. `centrifugal-pump-bb1`                    |
-| `criticality`         | TEXT        | `A` / `B` / `C`                                                             |
+| `criticality`         | TEXT        | `A` / `B` / `C` / `D`                                                       |
 | `service_description` | TEXT        | Free text                                                                   |
 | `status`              | TEXT        | `active` / `decommissioned` / `pending_review`                              |
 | `attributes`          | JSONB       | Class-specific fields (rated_flow, rated_head, materials, etc.)             |
@@ -46,7 +46,7 @@
 | `canonical_id`          | TEXT FK       | → `mar_assets.canonical_id`                                    |
 | `source_system_id`      | TEXT          | Configured connection, e.g. `refinery-gc.pi-af.prod`           |
 | `source_system_type`    | TEXT          | `pi_af` / `sap_cmdb` / `csv` / `json`                          |
-| `vendor_id`             | TEXT          | Raw asset ID in the source                                     |
+| `vendor_id`             | TEXT          | Raw asset ID in the source. For PI AF sources, `vendor_id` is the AF **WebId** and `vendor_path` is the AF **Path** (Sprint 2a decision; WebIds are stable across path renames). |
 | `vendor_path`           | TEXT          | Hierarchy path in source (e.g. `\Site\Unit21\CDU\P-2103A`)     |
 | `vendor_metadata`       | JSONB         | Raw record blob from source                                    |
 | `resolution_status`     | TEXT          | `auto_resolved` / `pending_review` / `human_validated` / `superseded` / `rejected` |
@@ -75,6 +75,8 @@ Tags, work orders, documents, and logs are accessed via MCP tool calls to their 
 ---
 
 ## 3. Knowledge Graph
+
+**Store:** Neo4j 5.x Community (dev mode in the product `docker-compose.yaml`).
 
 ### 3.1 Layers
 
@@ -199,7 +201,7 @@ After a run, the UI displays a coverage summary: which categories are bound, how
 2. **Crawl the Asset Hierarchy source.** Walk the full hierarchy (PI AF traversal / CSV parse / JSON load / etc.). Load all asset records and the hierarchy path of each into a staging table.
 3. **Resolution pass on assets:**
    - **Exact-match rules** — vendor IDs that already match an existing `mar_asset_bindings` row pass through as no-ops (delta detection).
-   - **Deterministic pattern rules** — e.g., `P-NNNNA` → centrifugal pump class — produce high-confidence canonical-ID proposals.
+   - **Deterministic pattern rules** — e.g., `P-NNNNA` → centrifugal pump class — produce high-confidence canonical-ID proposals. Pattern rules ship in Phase 1 as a versioned rule registry (`packages/mar/seed_data/pattern_rules.yaml`); provenance is written as `rule:<id>`. (Amended in Sprint 2a — previously implied as deferred.)
    - **LLM classifier** for residuals — proposes `canonical_id` and `asset_class` against the ISO 14224 ontology, returns top-3 candidates with confidence scores.
    - **Auto-accept threshold** — configurable, default 0.92. Rows above threshold get `resolution_status = 'auto_resolved'`.
    - **Below threshold** → `resolution_status = 'pending_review'`, queued for human review.

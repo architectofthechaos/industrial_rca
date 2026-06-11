@@ -17,6 +17,17 @@ from .errors import (
     UnresolvedSignal,
     map_source_error,
 )
+from .health import (
+    CheckResult,
+    HealthProbe,
+    HealthReport,
+    ProbeResult,
+    TestConnectionRequest,
+    TestConnectionResponse,
+    register_health,
+    skipped_check,
+    timed_check,
+)
 from .mcp import build_server, register
 from .orchestrator import EvidenceTool, evidence_tool
 from .ports import (
@@ -34,6 +45,7 @@ from .ports import (
 )
 from .subscription import RingBuffer, SubscriptionState, run_with_reconnect
 from .provenance import ProvenanceAccumulator, ProvenanceMissingError
+from .responses import ok_response
 from .retry import with_retry
 from .series import build_measurement_series
 from .timeutil import build_time_basis, to_utc
@@ -48,6 +60,9 @@ __all__ = [
     "build_measurement_series",
     # mcp
     "build_server", "register",
+    # health (aggregate/success stay in rca_connector_sdk.health — names too generic here)
+    "register_health", "HealthProbe", "ProbeResult", "timed_check", "skipped_check",
+    "CheckResult", "HealthReport", "TestConnectionRequest", "TestConnectionResponse",
     # ports
     "SignalResolver", "CredentialBroker", "CostSink", "EventSink", "Credential", "SourceBinding",
     "InMemorySignalResolver", "StaticCredentialBroker", "NullCostSink",
@@ -56,7 +71,7 @@ __all__ = [
     "RingBuffer", "SubscriptionState", "run_with_reconnect",
     # helpers
     "to_si", "to_utc", "build_time_basis", "with_retry",
-    "ProvenanceAccumulator", "ProvenanceMissingError",
+    "ProvenanceAccumulator", "ProvenanceMissingError", "ok_response",
     # errors
     "ConnectorError", "SourceUnavailable", "SourceTimeout", "UnresolvedSignal",
     "PermissionDenied", "NotFound", "UnitConversionAmbiguous", "MalformedResponse",

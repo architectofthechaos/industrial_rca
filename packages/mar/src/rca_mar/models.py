@@ -76,7 +76,8 @@ class AssetAlias(Base):
     Column-name mapping to the spec: `confidence` is the spec's
     `resolution_confidence` and `mapping_source` is the spec's
     `resolution_method` ('authoritative_import', 'exact_match',
-    'rule:tag_pattern', 'cross_walk', 'manual', 'llm_v<n>'). They keep their
+    'rule:<id>' — a pattern_rules.yaml rule id such as 'rule:pump_p_tag' —
+    'cross_walk', 'manual', 'llm_v<n>'). They keep their
     original names for backwards compatibility.
 
     Pending-review semantics (Sprint 1): when automated resolution finds a

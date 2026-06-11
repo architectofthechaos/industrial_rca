@@ -10,12 +10,11 @@ Phase 1 spec §2.1); the resolve auto-accept gate defaults to MAR_AUTO_ACCEPT_TH
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastmcp import FastMCP
 from pydantic import AwareDatetime, BaseModel
-from rca_connector_sdk import NotFound, ProvenanceAccumulator, build_server, map_source_error
+from rca_connector_sdk import NotFound, build_server, map_source_error, ok_response
 from rca_contracts import (
     AssetDescriptor,
     ResolveAssetOutput,
@@ -23,6 +22,7 @@ from rca_contracts import (
     ToolResponse,
 )
 
+from .pattern_rules import PatternRule, load_rules
 from .repository import AssetRepository
 from .resolution import resolve_asset
 
@@ -51,16 +51,13 @@ class SearchRequest(BaseModel):
     limit: int = 50
 
 
-def _ok(envelope, data, *, tool, source_query, record_count, raw_tags):
-    prov = ProvenanceAccumulator()
-    prov.record(source_query=source_query, record_count=record_count, raw_tags=raw_tags)
-    provenance = prov.build(tool_name=tool, tool_version=_VERSION, source=_SOURCE,
-                            queried_at=datetime.now(timezone.utc), response_id=uuid4())
-    return envelope.ok(data, provenance)
-
-
 def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
-                 regex_patterns: list[str] | None = None) -> FastMCP:
+                 rules: list[PatternRule] | None = None) -> FastMCP:
+    """Build the MAR FastMCP server. rules=None uses the default pattern-rule registry
+    (loaded eagerly here so a broken registry fails at construction, not first resolve;
+    load_rules() is cached so this costs nothing); rules=[] disables resolution step 3."""
+    if rules is None:
+        load_rules()  # fail fast on a corrupt/invalid registry file
     mcp = build_server("mar")
 
     @mcp.tool(name="assets.resolve")
@@ -69,7 +66,7 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
         try:
             r = await resolve_asset(repo, request.external_id, request.source_system, tenant_id,
                                     valid_at=request.time, min_confidence=request.min_confidence,
-                                    regex_patterns=regex_patterns)
+                                    rules=rules)
             asset = await repo.get_asset(tenant_id, r.asset_id) if r.asset_id else None
             alts = [a for a in
                     [await repo.get_asset(tenant_id, x) for x in r.alternatives] if a is not None]
@@ -77,10 +74,11 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
                                      canonical_id=asset.canonical_id if asset else None,
                                      confidence=r.confidence,
                                      mapping_source=r.mapping_source, alternatives=alts)
-            return _ok(envelope, out, tool="assets.resolve",
-                       source_query=f"resolve {request.source_system}:{request.external_id}",
-                       record_count=1 if asset else 0,
-                       raw_tags=[f"{request.source_system}:{request.external_id}"])
+            return ok_response(out, tool="assets.resolve", version=_VERSION, source=_SOURCE,
+                               source_query=(f"resolve {request.source_system}"
+                                             f":{request.external_id}"),
+                               record_count=1 if asset else 0,
+                               raw_tags=[f"{request.source_system}:{request.external_id}"])
         except Exception as exc:  # noqa: BLE001
             return envelope.fail(map_source_error(exc))
 
@@ -102,9 +100,9 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
                 asset = await repo.find_asset_by_canonical_id(tenant_id, request.canonical_id)
             if asset is None:
                 raise NotFound(f"asset {key} not found")
-            return _ok(envelope, asset, tool="assets.get",
-                       source_query=f"get {key}", record_count=1,
-                       raw_tags=[key])
+            return ok_response(asset, tool="assets.get", version=_VERSION, source=_SOURCE,
+                               source_query=f"get {key}", record_count=1,
+                               raw_tags=[key])
         except Exception as exc:  # noqa: BLE001
             return envelope.fail(map_source_error(exc))
 
@@ -116,11 +114,11 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
                 tenant_id, iso14224_class=request.iso14224_class, tag_pattern=request.tag_pattern,
                 canonical_id_pattern=request.canonical_id_pattern, criticality=request.criticality,
                 service=request.service, limit=request.limit)
-            return _ok(envelope, assets, tool="assets.search",
-                       source_query=(f"search class={request.iso14224_class}"
-                                     f" tag={request.tag_pattern}"
-                                     f" canonical_id={request.canonical_id_pattern}"),
-                       record_count=len(assets), raw_tags=[a.tag for a in assets])
+            return ok_response(assets, tool="assets.search", version=_VERSION, source=_SOURCE,
+                               source_query=(f"search class={request.iso14224_class}"
+                                             f" tag={request.tag_pattern}"
+                                             f" canonical_id={request.canonical_id_pattern}"),
+                               record_count=len(assets), raw_tags=[a.tag for a in assets])
         except Exception as exc:  # noqa: BLE001
             return envelope.fail(map_source_error(exc))
 

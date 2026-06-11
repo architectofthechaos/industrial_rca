@@ -25,7 +25,8 @@ tasks:
         packages/connectors/echo/src packages/connectors/pi/src
         packages/connectors/sap_pm/src packages/connectors/maximo/src
         packages/connectors/documents/src packages/connectors/opc_ua/src
-        packages/connectors/mqtt/src packages/mar/src
+        packages/connectors/mqtt/src packages/connectors/asset_hierarchy/src
+        packages/mar/src packages/kg/src
 
   parity:pi:
     desc: Run the PI connector parity test against the REAL PI simulator (starts + tears it down)
@@ -34,6 +35,14 @@ tasks:
       - defer: cd rca_simulator && task down:pi
       - sleep 4
       - uv run pytest packages/connectors/pi/tests/test_pi_parity.py -q -p no:cacheprovider
+
+  parity:asset_hierarchy:
+    desc: Run the asset_hierarchy crawler tests against the REAL PI simulator (AF endpoints live there)
+    cmds:
+      - cd rca_simulator && task up:pi
+      - defer: cd rca_simulator && task down:pi
+      - sleep 4
+      - uv run pytest packages/connectors/asset_hierarchy -q -p no:cacheprovider
 
   parity:sap:
     desc: Run the SAP PM connector parity test against the REAL SAP simulator (starts + tears it down)
@@ -122,6 +131,26 @@ tasks:
     desc: Run hermetic MAR tests (no DB, no sim)
     cmds:
       - uv run pytest packages/mar -q --ignore=packages/mar/tests/test_pg_repo.py --ignore=packages/mar/tests/test_mar_wire_parity.py
+
+  kg:db:up:
+    desc: Start the product Neo4j (:7474 http, :7687 bolt) and wait until healthy
+    cmds: ["docker compose -f infra/docker-compose.yaml up -d --wait neo4j"]
+
+  kg:db:down:
+    desc: Stop + remove the product Neo4j
+    cmds: ["docker compose -f infra/docker-compose.yaml rm -sf neo4j"]
+
+  kg:migrate:
+    desc: Apply KG cypher migrations to the running Neo4j
+    cmds: ["uv run python -m rca_kg.migrate"]
+
+  kg:seed:
+    desc: Apply the KG seed files (ISO 14224 BB1 ontology + refplant hierarchy) idempotently
+    cmds: ["uv run python -m rca_kg.seed"]
+
+  test:kg:
+    desc: Run KG tests (live ones skip if Neo4j isn't up)
+    cmds: ["uv run pytest packages/kg -q"]
 
   parity:mar-wire:
     desc: Resolver wire-in — MarResolver drives the Maximo connector against the REAL Maximo sim

@@ -7,33 +7,37 @@ version: 1
 tenant_id: 0190d3c9-0000-7000-8000-0000000000ff
 plant_id: refinery-gc
 assets:
-  - asset_id: 0190d3c9-0000-7000-8000-000000000001
-    tag: P-101A
-    unit: unit-101
-    iso14224_class: pump.centrifugal
-    iso14224_level: 6
-    service: charge pump
-    criticality: high
-    manufacturer: Sulzer
-    model: AHLSTAR-A22-50
-    serial_number: SN-2018-00471
-    external_ids:
-      maximo: CRDU-P101A
-      sap_pm: '10001234'
-      pi_af: \\PI-DEMO\Refinery\P-101A
-      uns: crude.p101a
-  - asset_id: 0190d3c9-0000-7000-8000-000000000004
-    tag: P-103A
-    unit: unit-201
-    iso14224_class: pump.centrifugal
-    iso14224_level: 6
-    service: transfer pump
-    criticality: low
-    manufacturer: Sulzer
-    model: OH2-200
-    serial_number: SN-2017-00188
-    external_ids:
-      maximo: TKFM-P103A
-      sap_pm: '10001255'
-      pi_af: \\PI-DEMO\Refinery\P-103A
-      uns: crude.p103a
+- asset_id: 0190d3c9-0000-7000-8000-000000000001
+  tag: P-101A
+  unit: unit-101
+  iso14224_class: pump.centrifugal
+  iso14224_level: 6
+  service: charge pump
+  criticality: high
+  manufacturer: Sulzer
+  model: AHLSTAR-A22-50
+  serial_number: SN-2018-00471
+  external_ids:
+    maximo: CRDU-P101A
+    sap_pm: '10001234'
+    pi_af:
+      external_id: S1XFxQSS1ERU1PXFJlZmluZXJ5LUdDXFNJVEUtREVNT1xBUkVBLTEwMFxVTklULTEwMVxQLTEwMUE
+      vendor_path: \\PI-DEMO\Refinery-GC\SITE-DEMO\AREA-100\UNIT-101\P-101A
+    uns: crude.p101a
+- asset_id: 0190d3c9-0000-7000-8000-000000000004
+  tag: P-103A
+  unit: unit-201
+  iso14224_class: pump.centrifugal
+  iso14224_level: 6
+  service: transfer pump
+  criticality: low
+  manufacturer: Sulzer
+  model: OH2-200
+  serial_number: SN-2017-00188
+  external_ids:
+    maximo: TKFM-P103A
+    sap_pm: '10001255'
+    pi_af:
+      external_id: S1XFxQSS1ERU1PXFJlZmluZXJ5LUdDXFNJVEUtREVNT1xBUkVBLTIwMFxVTklULTIwMVxQLTEwM0E
+      vendor_path: \\PI-DEMO\Refinery-GC\SITE-DEMO\AREA-200\UNIT-201\P-103A
+    uns: crude.p103a

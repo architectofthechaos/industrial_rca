@@ -1,12 +1,19 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from rca_mar.pattern_rules import PatternRule
 from rca_mar.repository import AliasRow, InMemoryRepository
 from rca_mar.resolution import resolve_asset
 from rca_contracts import AssetDescriptor
 
 TENANT = uuid4()
 T2020 = datetime(2020, 1, 1, tzinfo=timezone.utc)
+
+# step-3 fixture: dotted historian path with a named 'tag' group; confidence 0.70
+# (below the 0.92 default gate) keeps the demotion/pending-review intents intact
+_UNS_RULE = PatternRule(id="rule:uns_dotted_tag",
+                        pattern=r"[A-Z]+\.(?P<tag>[A-Z]-\d+[A-Z]?)\.",
+                        iso14224_class="pump.centrifugal", confidence=0.70, applies_to="tag")
 
 
 def _asset(asset_id, tag):
@@ -162,35 +169,58 @@ async def test_ambiguous_crosswalk_binds_nothing_and_queues():
     assert (TENANT, "uns", "CRDU-P101A") in repo.unresolved
 
 
-async def test_regex_below_default_gate_is_pending_review():
+async def test_rule_match_below_default_gate_is_pending_review():
+    # the candidate tag comes from the rule pattern's named 'tag' group; mapping_source
+    # and the persisted method are the matching rule's id (Sprint 2a §1.5)
     repo, pump = await _seeded()
-    r = await resolve_asset(repo, "SITE.P-101A.PV", "uns", TENANT,
-                            regex_patterns=[r"[A-Z]+\.(?P<tag>[A-Z]-\d+[A-Z]?)\."])
-    assert r.status == "unresolved" and r.mapping_source == "rule:tag_pattern"
+    r = await resolve_asset(repo, "SITE.P-101A.PV", "uns", TENANT, rules=[_UNS_RULE])
+    assert r.status == "unresolved" and r.mapping_source == "rule:uns_dotted_tag"
     pending = _active_alias(repo, "uns", "SITE.P-101A.PV")
     assert pending is not None and pending.asset_id == pump
     assert pending.resolution_status == "pending_review" and pending.resolved_by == "system"
     assert pending.source_system_type == "historian"
     assert pending.candidate_alternatives == [
         {"canonical_id": "asset:refinery-gc:unit-101:p-101a",
-         "confidence": 0.70, "method": "rule:tag_pattern"}]
+         "confidence": 0.70, "method": "rule:uns_dotted_tag"}]
     assert (TENANT, "uns", "SITE.P-101A.PV") not in repo.unresolved
 
 
-async def test_regex_passes_when_min_confidence_lowered():
+async def test_rule_match_passes_when_min_confidence_lowered():
     repo, pump = await _seeded()
     r = await resolve_asset(repo, "SITE.P-101A.PV", "uns", TENANT, min_confidence=0.7,
-                            regex_patterns=[r"[A-Z]+\.(?P<tag>[A-Z]-\d+[A-Z]?)\."])
-    assert r.status == "resolved" and r.asset_id == pump and r.mapping_source == "rule:tag_pattern"
+                            rules=[_UNS_RULE])
+    assert r.status == "resolved" and r.asset_id == pump
+    assert r.mapping_source == "rule:uns_dotted_tag"
 
 
 async def test_env_threshold_honored(monkeypatch):
-    # MAR_AUTO_ACCEPT_THRESHOLD lowers the default gate; regex (0.70) then auto-accepts
+    # MAR_AUTO_ACCEPT_THRESHOLD lowers the default gate; the rule (0.70) then auto-accepts
     monkeypatch.setenv("MAR_AUTO_ACCEPT_THRESHOLD", "0.5")
     repo, pump = await _seeded()
-    r = await resolve_asset(repo, "SITE.P-101A.PV", "uns", TENANT,
-                            regex_patterns=[r"[A-Z]+\.(?P<tag>[A-Z]-\d+[A-Z]?)\."])
+    r = await resolve_asset(repo, "SITE.P-101A.PV", "uns", TENANT, rules=[_UNS_RULE])
     assert r.status == "resolved" and r.asset_id == pump
+
+
+async def test_default_registry_used_when_no_rules_passed():
+    # rules=None -> seed_data/pattern_rules.yaml; rule:pump_p_tag has no named 'tag'
+    # group, so the candidate tag is the FULL matched text ('P-101A'); confidence 0.85
+    # sits below the 0.92 default gate -> pending review under the rule's id
+    repo, pump = await _seeded()
+    r = await resolve_asset(repo, "P-101A", "uns", TENANT)
+    assert r.status == "unresolved" and r.asset_id == pump
+    assert r.mapping_source == "rule:pump_p_tag" and r.confidence == 0.85
+    pending = _active_alias(repo, "uns", "P-101A")
+    assert pending is not None and pending.resolution_status == "pending_review"
+    assert pending.mapping_source == "rule:pump_p_tag"
+
+
+async def test_empty_rules_list_disables_step3_entirely():
+    # rules=[] (unlike rules=None, which loads the default registry) turns step 3 off:
+    # a tag the shipped registry WOULD match falls through to step 4 unresolved
+    repo, _pump = await _seeded()
+    r = await resolve_asset(repo, "P-101A", "uns", TENANT, rules=[])
+    assert r.status == "unresolved" and r.asset_id is None and r.mapping_source == "none"
+    assert (TENANT, "uns", "P-101A") in repo.unresolved
 
 
 async def test_unknown_is_unresolved_and_queued():

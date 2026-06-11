@@ -14,6 +14,12 @@ P103A = UUID("0190d3c9-0000-7000-8000-000000000004")
 
 CANONICAL_ID_RE = re.compile(r"^asset:[a-z0-9-]+:[a-z0-9-]+:[a-z0-9-]+$")
 
+# pi_af aliases are keyed by AF WebId (stable across path renames — Sprint 2a re-key);
+# the AF path rides along as vendor_path. Values produced by seed_data/scripts/
+# rekey_pi_af_webids.py against the live PI AF simulator.
+P101A_WEBID = "S1XFxQSS1ERU1PXFJlZmluZXJ5LUdDXFNJVEUtREVNT1xBUkVBLTEwMFxVTklULTEwMVxQLTEwMUE"
+P101A_AF_PATH = r"\\PI-DEMO\Refinery-GC\SITE-DEMO\AREA-100\UNIT-101\P-101A"
+
 
 async def test_seed_populates_assets_and_aliases():
     repo = InMemoryRepository()
@@ -26,8 +32,11 @@ async def test_seed_populates_assets_and_aliases():
 
     assert await repo.source_handle_for(TENANT, P101A, "maximo") == "CRDU-P101A"
     assert await repo.source_handle_for(TENANT, P101A, "sap_pm") == "10001234"
-    assert await repo.source_handle_for(TENANT, P101A, "pi_af") == r"\\PI-DEMO\Refinery\P-101A"
+    assert await repo.source_handle_for(TENANT, P101A, "pi_af") == P101A_WEBID
     assert await repo.source_handle_for(TENANT, P101A, "uns") == "crude.p101a"
+
+    pi_af = await repo.find_active_alias(TENANT, "pi_af", P101A_WEBID, valid_at=None)
+    assert pi_af is not None and pi_af.vendor_path == P101A_AF_PATH
 
 
 async def test_seed_registers_leaf_assets_only():
@@ -90,6 +99,85 @@ async def test_seed_rejects_unknown_criticality_word(tmp_path):
         "    iso14224_level: 6\n"
         "    criticality: critical\n")
     with pytest.raises(ValueError, match="unknown criticality 'critical'"):
+        await seed_from_register(InMemoryRepository(), register)
+
+
+async def test_seed_accepts_mapping_external_id_with_vendor_path(tmp_path):
+    # a register source value may be a mapping {external_id, vendor_path} (the re-keyed
+    # pi_af form: WebId as external_id, AF path as vendor_path); plain strings keep the
+    # old behavior (external_id only, vendor_path stays None)
+    web_id = P101A_WEBID
+    af_path = P101A_AF_PATH
+    register = tmp_path / "register.yaml"
+    register.write_text(
+        "version: 1\n"
+        f"tenant_id: {TENANT}\n"
+        "plant_id: refinery-gc\n"
+        "assets:\n"
+        f"  - asset_id: {P101A}\n"
+        "    tag: P-101A\n"
+        "    unit: unit-101\n"
+        "    iso14224_class: pump.centrifugal\n"
+        "    iso14224_level: 6\n"
+        "    criticality: high\n"
+        "    external_ids:\n"
+        "      maximo: CRDU-P101A\n"
+        "      pi_af:\n"
+        f"        external_id: {web_id}\n"
+        f"        vendor_path: {af_path}\n")
+    repo = InMemoryRepository()
+    await seed_from_register(repo, register)
+
+    pi_af = await repo.find_active_alias(TENANT, "pi_af", web_id, valid_at=None)
+    assert pi_af is not None
+    assert pi_af.external_id == web_id
+    assert pi_af.vendor_path == af_path
+    assert pi_af.asset_id == P101A
+
+    maximo = await repo.find_active_alias(TENANT, "maximo", "CRDU-P101A", valid_at=None)
+    assert maximo is not None and maximo.vendor_path is None        # string form: back-compat
+
+
+async def test_seed_rejects_unknown_key_in_external_id_mapping(tmp_path):
+    # mapping-form values are authoritative input too: an unknown key is a register bug
+    # and must fail loudly, never be silently dropped
+    register = tmp_path / "register.yaml"
+    register.write_text(
+        "version: 1\n"
+        f"tenant_id: {TENANT}\n"
+        "plant_id: refinery-gc\n"
+        "assets:\n"
+        f"  - asset_id: {P101A}\n"
+        "    tag: P-101A\n"
+        "    unit: unit-101\n"
+        "    iso14224_class: pump.centrifugal\n"
+        "    iso14224_level: 6\n"
+        "    criticality: high\n"
+        "    external_ids:\n"
+        "      pi_af:\n"
+        "        external_id: S1abc\n"
+        "        vendor_route: oops\n")
+    with pytest.raises(ValueError, match="unknown external_ids key"):
+        await seed_from_register(InMemoryRepository(), register)
+
+
+async def test_seed_rejects_mapping_without_external_id(tmp_path):
+    register = tmp_path / "register.yaml"
+    register.write_text(
+        "version: 1\n"
+        f"tenant_id: {TENANT}\n"
+        "plant_id: refinery-gc\n"
+        "assets:\n"
+        f"  - asset_id: {P101A}\n"
+        "    tag: P-101A\n"
+        "    unit: unit-101\n"
+        "    iso14224_class: pump.centrifugal\n"
+        "    iso14224_level: 6\n"
+        "    criticality: high\n"
+        "    external_ids:\n"
+        "      pi_af:\n"
+        "        vendor_path: \\\\PI-DEMO\\Refinery-GC\\X\n")
+    with pytest.raises(ValueError, match="missing required key 'external_id'"):
         await seed_from_register(InMemoryRepository(), register)
 
 

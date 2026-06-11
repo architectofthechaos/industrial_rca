@@ -22,9 +22,11 @@ from rca_connector_sdk import (
     SubscriptionState,
     build_server,
     map_source_error,
+    register_health,
 )
 from rca_contracts import ToolResponse
 
+from .health import MqttHealthProbe
 from .models import (
     DeviceSnapshot,
     MetricSnapshot,
@@ -101,7 +103,17 @@ def _build_recent(state: SubscriptionState, *, device_id: str | None, limit: int
     return RecentMessages(messages=messages)
 
 
-def make_mqtt_mcp(*, state: SubscriptionState) -> FastMCP:
+_VERSION = "0.1.0"
+
+
+def make_mqtt_mcp(
+    *,
+    state: SubscriptionState,
+    broker_host: str = "localhost",
+    broker_port: int = 1883,
+    paho_health_client_class: Any | None = None,   # inject a fake paho client for tests
+    health_reachable_check: Any | None = None,     # inject a TCP pre-check stub for tests
+) -> FastMCP:
     """Build the MQTT/UNS MCP server reading the cache `state` (filled by UnsService)."""
     mcp = build_server("mqtt-uns-connector")
 
@@ -135,6 +147,16 @@ def make_mqtt_mcp(*, state: SubscriptionState) -> FastMCP:
         except Exception as exc:  # noqa: BLE001 — boundary: every failure becomes a ToolError
             return envelope.fail(map_source_error(exc))
 
+    register_health(
+        mcp,
+        version=_VERSION,
+        probe=MqttHealthProbe(
+            broker_host=broker_host,
+            broker_port=broker_port,
+            paho_client_class=paho_health_client_class,
+            reachable_check=health_reachable_check,
+        ),
+    )
     return mcp
 
 

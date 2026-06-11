@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "rca-contracts",
     "rca-connector-sdk",
+    "rca-kg",
     "pydantic>=2",
     "sqlalchemy[asyncio]>=2",
     "asyncpg>=0.29",
@@ -24,3 +25,4 @@ packages = ["src/rca_mar"]
 [tool.uv.sources]
 rca-contracts = { workspace = true }
 rca-connector-sdk = { workspace = true }
+rca-kg = { workspace = true }
