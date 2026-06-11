@@ -11,14 +11,14 @@ from uuid import UUID
 
 from pydantic import Field
 
-from ._base import StrictModel
+from ._base import JsonModel
 from .agent_io import TokenUsage
 from .hitl import HitlResponse, HitlTurn
 
 AgentName = Literal["planning", "gather", "rca"]
 
 
-class Message(StrictModel):
+class Message(JsonModel):
     """Serializable representation of a conversation/scratchpad message.
 
     LangChain message objects serialize awkwardly through Temporal (risk #10); the
@@ -32,7 +32,7 @@ class Message(StrictModel):
     metadata: dict = Field(default_factory=dict)
 
 
-class AgentLegResult(StrictModel):
+class AgentLegResult(JsonModel):
     needs_hitl: bool
     hitl_turn: HitlTurn | None = None       # questions + context to show engineer
     final_output: dict | None = None        # set when the leg completes (plan / evidence / conclusion)

@@ -11,7 +11,7 @@ from uuid import UUID
 
 from pydantic import Field
 
-from ._base import StrictModel
+from ._base import JsonModel
 from .evidence import EvidenceCitation
 
 AnswerSource = Literal["evidence_package", "kg", "engineer_hitl", "agent_inference"]
@@ -19,7 +19,7 @@ ActionPriority = Literal["immediate", "next_shutdown", "monitor"]
 ApprovalStatus = Literal["approved", "approved_with_edits", "rejected"]
 
 
-class FiveWhysStep(StrictModel):
+class FiveWhysStep(JsonModel):
     rank: int                            # 1, 2, 3, ...
     why_question: str
     answer: str
@@ -27,7 +27,7 @@ class FiveWhysStep(StrictModel):
     supporting_evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
-class FiveWhysChain(StrictModel):
+class FiveWhysChain(JsonModel):
     chain_id: UUID
     initial_problem: str
     steps: list[FiveWhysStep] = Field(default_factory=list)
@@ -35,20 +35,20 @@ class FiveWhysChain(StrictModel):
     confidence: float
 
 
-class FishboneCause(StrictModel):
+class FishboneCause(JsonModel):
     cause: str
     sub_causes: list[str] = Field(default_factory=list)
     supporting_evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
-class FishboneCategory(StrictModel):
+class FishboneCategory(JsonModel):
     category: Literal[
         "Manpower", "Method", "Machine", "Material", "Measurement", "Environment"
     ]
     causes: list[FishboneCause] = Field(default_factory=list)
 
 
-class RankedHypothesis(StrictModel):
+class RankedHypothesis(JsonModel):
     rank: int
     iso14224_failure_mode: str           # KG-validated (FailureMode.code)
     iso14224_mechanism: str              # KG-validated (FailureMechanism.id)
@@ -59,7 +59,7 @@ class RankedHypothesis(StrictModel):
     contradicting_evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
-class RecommendedAction(StrictModel):
+class RecommendedAction(JsonModel):
     action: str
     rationale: str
     priority: ActionPriority
@@ -68,13 +68,13 @@ class RecommendedAction(StrictModel):
     preconditions: list[str] = Field(default_factory=list)  # G7
 
 
-class OpenDataRequest(StrictModel):           # G8 — distinct from recommended_actions
+class OpenDataRequest(JsonModel):           # G8 — distinct from recommended_actions
     request: str
     rationale: str
     target: str | None = None
 
 
-class EngineerEdit(StrictModel):
+class EngineerEdit(JsonModel):
     field_path: str
     before: Any = None
     after: Any = None
@@ -82,7 +82,7 @@ class EngineerEdit(StrictModel):
     engineer_notes: str | None = None
 
 
-class RcaConclusion(StrictModel):
+class RcaConclusion(JsonModel):
     conclusion_id: UUID
     probe_run_id: UUID
     evidence_package_id: UUID

@@ -7,12 +7,12 @@ from uuid import UUID
 
 from pydantic import Field
 
-from ._base import StrictModel
+from ._base import JsonModel
 
 PlanStepType = Literal["tag_history", "work_orders", "documents", "operator_logs", "kg_query"]
 
 
-class FailureModeCandidate(StrictModel):
+class FailureModeCandidate(JsonModel):
     iso14224_code: str                   # ontology FailureMode.code, e.g. "ELP"
     name: str
     rank: int
@@ -20,7 +20,7 @@ class FailureModeCandidate(StrictModel):
     reasoning: str
 
 
-class PlanStep(StrictModel):
+class PlanStep(JsonModel):
     step_id: UUID
     step_type: PlanStepType
     description: str                     # engineer-readable
@@ -29,7 +29,7 @@ class PlanStep(StrictModel):
     estimated_cost: str | None = None    # "fast" | "slow" | "expensive"
 
 
-class InvestigationPlan(StrictModel):
+class InvestigationPlan(JsonModel):
     plan_id: UUID
     probe_run_id: UUID
     version: int                         # incremented on each edit cycle

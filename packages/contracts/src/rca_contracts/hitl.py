@@ -12,12 +12,12 @@ from uuid import UUID
 
 from pydantic import Field
 
-from ._base import StrictModel
+from ._base import JsonModel
 
 QuestionType = Literal["clarification", "context", "scope", "approval"]
 
 
-class HitlQuestion(StrictModel):
+class HitlQuestion(JsonModel):
     question_id: UUID
     text: str
     question_type: QuestionType
@@ -25,7 +25,7 @@ class HitlQuestion(StrictModel):
     required: bool = True
 
 
-class HitlTurn(StrictModel):
+class HitlTurn(JsonModel):
     turn_id: UUID
     questions: list[HitlQuestion] = Field(default_factory=list)   # batched, relevant
     proposed_plan: dict | None = None        # set at the plan-approval gate
@@ -35,26 +35,26 @@ class HitlTurn(StrictModel):
     agent_name: str                          # "planning" | "gather" | "rca"
 
 
-class HitlAnswer(StrictModel):
+class HitlAnswer(JsonModel):
     question_id: UUID
     answer: str
     chosen_candidate: dict | None = None     # when answering a candidate-shortlist question
 
 
-class PlanEdit(StrictModel):
+class PlanEdit(JsonModel):
     op: Literal["add_step", "remove_step", "modify_step", "note"]
     step_id: UUID | None = None
     step: dict | None = None                 # new/modified PlanStep fields
     note: str | None = None
 
 
-class ConclusionEdit(StrictModel):
+class ConclusionEdit(JsonModel):
     field_path: str                          # e.g. "primary_hypothesis.narrative"
     after: Any
     note: str | None = None
 
 
-class HitlResponse(StrictModel):
+class HitlResponse(JsonModel):
     turn_id: UUID
     answers: list[HitlAnswer] = Field(default_factory=list)         # one per question
     plan_edits: list[PlanEdit] | None = None         # for plan-approval turns

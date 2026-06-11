@@ -12,17 +12,17 @@ from uuid import UUID
 
 from pydantic import Field
 
-from ._base import StrictModel
+from ._base import JsonModel
 from .plan import InvestigationPlan
 
 
-class EvidenceCitation(StrictModel):
+class EvidenceCitation(JsonModel):
     section: str          # "tag" | "work_order" | "document" | "operator_log" | "kg" | "asset"
     item_id: str
     relevance: str | None = None
 
 
-class ProvenanceEntry(StrictModel):
+class ProvenanceEntry(JsonModel):
     """Cross-section index into the per-call Provenance (G5). One per section touched."""
 
     section: str          # "tag" | "work_order" | "document" | "operator_log" | "kg" | "asset"
@@ -34,7 +34,7 @@ class ProvenanceEntry(StrictModel):
     record_count: int
 
 
-class AssetSummary(StrictModel):
+class AssetSummary(JsonModel):
     canonical_id: str
     name: str
     iso14224_class: str
@@ -44,36 +44,36 @@ class AssetSummary(StrictModel):
     model: str | None = None
 
 
-class HierarchyPath(StrictModel):
+class HierarchyPath(JsonModel):
     site: str | None = None
     area: str | None = None
     unit: str | None = None
     plant_id: str
 
 
-class ISO14224Context(StrictModel):
+class ISO14224Context(JsonModel):
     equipment_class: str
     applicable_failure_modes: list[dict] = Field(default_factory=list)  # {code, name, mechanisms}
 
 
-class TagAnomaly(StrictModel):
+class TagAnomaly(JsonModel):
     tag_name: str
     role: str | None = None
     summary: str
     severity: str | None = None      # "normal" | "elevated" | "critical"
 
 
-class TagEvidence(StrictModel):
+class TagEvidence(JsonModel):
     tags: list[dict] = Field(default_factory=list)        # per-tag summary stats
     anomalies: list[TagAnomaly] = Field(default_factory=list)
     anomaly_method: Literal["llm_v1", "rule:3sigma"] = "rule:3sigma"
 
 
-class WorkOrderEvidence(StrictModel):
+class WorkOrderEvidence(JsonModel):
     work_orders: list[dict] = Field(default_factory=list)
 
 
-class ScoredDocument(StrictModel):
+class ScoredDocument(JsonModel):
     document_id: str
     title: str
     doc_type: str | None = None
@@ -81,22 +81,22 @@ class ScoredDocument(StrictModel):
     excerpt: str | None = None
 
 
-class DocumentEvidence(StrictModel):
+class DocumentEvidence(JsonModel):
     documents: list[ScoredDocument] = Field(default_factory=list)
     score_method: Literal["embedding_v1", "keyword_overlap"] = "keyword_overlap"
 
 
-class OperatorLogEvidence(StrictModel):
+class OperatorLogEvidence(JsonModel):
     entries: list[dict] = Field(default_factory=list)
 
 
-class CategoryCoverage(StrictModel):
+class CategoryCoverage(JsonModel):
     status: str          # "ok" | "skipped:connection_unhealthy" | "empty" | "skipped:no_connection"
     record_count: int = 0
     note: str | None = None
 
 
-class CoverageReport(StrictModel):
+class CoverageReport(JsonModel):
     historian: CategoryCoverage
     cmms: CategoryCoverage
     documents: CategoryCoverage
@@ -104,7 +104,7 @@ class CoverageReport(StrictModel):
     llm_status: Literal["ok", "budget_exceeded", "fallback_used"] = "ok"
 
 
-class PlanExecutionNote(StrictModel):
+class PlanExecutionNote(JsonModel):
     step_id: UUID
     step_type: str
     records_returned: int
@@ -112,7 +112,7 @@ class PlanExecutionNote(StrictModel):
     deviation: str | None = None
 
 
-class EvidencePackage(StrictModel):
+class EvidencePackage(JsonModel):
     evidence_package_id: UUID
     probe_run_id: UUID
     canonical_id: str
