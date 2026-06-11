@@ -15,7 +15,7 @@ from rca_contracts import (
     MeasurementSeries,
     PressureReference,
     Provenance,
-    SignalDescriptor,
+    TagDescriptor,
     TimeBasis,
     ToolError,
     ToolResponse,
@@ -25,9 +25,10 @@ from rca_contracts import (
 UTC = timezone.utc
 
 
-def _signal() -> SignalDescriptor:
-    return SignalDescriptor(
-        signal_id=uuid4(), tenant_id=uuid4(), asset_id=uuid4(),
+def _tag() -> TagDescriptor:
+    return TagDescriptor(
+        canonical_id="asset:refinery-gc:unit-101:p-101a",
+        tag_name="P-101A.discharge_pressure",
         role="discharge_pressure", qudt_unit="http://qudt.org/vocab/unit/PA",
     )
 
@@ -50,14 +51,32 @@ def _provenance() -> Provenance:
 
 # ---------- identity / descriptors ----------
 
-def test_signal_descriptor_defaults_pressure_reference():
-    assert _signal().pressure_reference is PressureReference.not_applicable
+def test_tag_descriptor_defaults_pressure_reference():
+    assert _tag().pressure_reference is PressureReference.not_applicable
+
+
+def test_tag_descriptor_round_trips_json():
+    tag = TagDescriptor(
+        canonical_id="asset:refinery-gc:unit-101:p-101a",
+        tag_name="P-101A.discharge_pressure",
+        role="discharge_pressure", source_unit="psig",
+        qudt_unit="http://qudt.org/vocab/unit/PA",
+        pressure_reference=PressureReference.gauge, description="pump discharge",
+    )
+    again = TagDescriptor.model_validate_json(tag.model_dump_json())
+    assert again == tag
+
+
+def test_tag_descriptor_minimal_optional_fields_default_none():
+    tag = TagDescriptor(canonical_id="asset:p:u:n", tag_name="raw.tag")
+    assert tag.role is None and tag.source_unit is None and tag.qudt_unit is None
+    assert tag.description is None
 
 
 def test_models_are_frozen():
-    sig = _signal()
+    tag = _tag()
     with pytest.raises(ValidationError):
-        sig.role = "other"
+        tag.role = "other"
 
 
 def test_models_forbid_unknown_fields():
@@ -73,11 +92,11 @@ def test_models_forbid_unknown_fields():
 
 def test_measurement_rejects_naive_datetime():
     with pytest.raises(ValidationError):
-        Measurement(signal_id=uuid4(), timestamp=datetime(2026, 3, 1), value=1.0)
+        Measurement(timestamp=datetime(2026, 3, 1), value=1.0)
 
 
 def test_measurement_accepts_aware_datetime_and_defaults():
-    m = Measurement(signal_id=uuid4(), timestamp=datetime(2026, 3, 1, tzinfo=UTC), value=1.5)
+    m = Measurement(timestamp=datetime(2026, 3, 1, tzinfo=UTC), value=1.5)
     assert m.quality == "good"
     assert m.is_interpolated is False
 
@@ -85,20 +104,19 @@ def test_measurement_accepts_aware_datetime_and_defaults():
 # ---------- measurement series ----------
 
 def test_measurement_series_holds_mode_and_values():
-    sig = _signal()
+    tag = _tag()
     ms = MeasurementSeries(
-        signal=sig, time_basis=_time_basis(), mode=HistorianMode.interpolated,
+        tag=tag, time_basis=_time_basis(), mode=HistorianMode.interpolated,
         interpolation_method="linear",
-        values=[Measurement(signal_id=sig.signal_id,
-                            timestamp=datetime(2026, 3, 1, tzinfo=UTC), value=1.0)],
+        values=[Measurement(timestamp=datetime(2026, 3, 1, tzinfo=UTC), value=1.0)],
     )
     assert ms.mode is HistorianMode.interpolated
     assert len(ms.values) == 1
 
 
 def test_measurement_series_python_round_trips():
-    sig = _signal()
-    ms = MeasurementSeries(signal=sig, time_basis=_time_basis(), mode=HistorianMode.stored,
+    tag = _tag()
+    ms = MeasurementSeries(tag=tag, time_basis=_time_basis(), mode=HistorianMode.stored,
                            aggregation_interval=timedelta(minutes=15), values=[])
     assert MeasurementSeries.model_validate(ms.model_dump()) == ms
 
@@ -134,8 +152,8 @@ def test_tool_error_rejects_unknown_code():
 # ---------- tool response envelope ----------
 
 def test_tool_response_ok_carries_data_and_provenance():
-    sig = _signal()
-    ms = MeasurementSeries(signal=sig, time_basis=_time_basis(), mode=HistorianMode.stored, values=[])
+    tag = _tag()
+    ms = MeasurementSeries(tag=tag, time_basis=_time_basis(), mode=HistorianMode.stored, values=[])
     resp = ToolResponse[MeasurementSeries].ok(ms, _provenance())
     assert resp.data == ms and resp.provenance is not None and resp.error is None
 
@@ -148,15 +166,15 @@ def test_tool_response_fail_carries_error_only():
 
 
 def test_tool_response_rejects_data_without_provenance():
-    sig = _signal()
-    ms = MeasurementSeries(signal=sig, time_basis=_time_basis(), mode=HistorianMode.stored, values=[])
+    tag = _tag()
+    ms = MeasurementSeries(tag=tag, time_basis=_time_basis(), mode=HistorianMode.stored, values=[])
     with pytest.raises(ValidationError):
         ToolResponse[MeasurementSeries](data=ms)            # provenance missing
 
 
 def test_tool_response_rejects_data_and_error_together():
-    sig = _signal()
-    ms = MeasurementSeries(signal=sig, time_basis=_time_basis(), mode=HistorianMode.stored, values=[])
+    tag = _tag()
+    ms = MeasurementSeries(tag=tag, time_basis=_time_basis(), mode=HistorianMode.stored, values=[])
     with pytest.raises(ValidationError):
         ToolResponse[MeasurementSeries](
             data=ms, provenance=_provenance(),
@@ -170,8 +188,8 @@ def test_tool_response_rejects_empty():
 
 
 def test_tool_response_round_trips_json():
-    sig = _signal()
-    ms = MeasurementSeries(signal=sig, time_basis=_time_basis(), mode=HistorianMode.stored, values=[])
+    tag = _tag()
+    ms = MeasurementSeries(tag=tag, time_basis=_time_basis(), mode=HistorianMode.stored, values=[])
     resp = ToolResponse[MeasurementSeries].ok(ms, _provenance())
     again = ToolResponse[MeasurementSeries].model_validate_json(resp.model_dump_json())
     assert again == resp

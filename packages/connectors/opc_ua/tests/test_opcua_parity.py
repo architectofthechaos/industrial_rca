@@ -12,7 +12,7 @@ import pytest
 from asyncua import Client
 from fastmcp import Client as McpClient
 from rca_connector_sdk import SourceBinding, SubscriptionState
-from rca_contracts import Measurement, PressureReference, SignalDescriptor, ToolResponse
+from rca_contracts import Measurement, PressureReference, TagDescriptor, ToolResponse
 
 from rca_connector_opc_ua.server import make_opcua_mcp
 from rca_connector_opc_ua.subscription import OpcUaSubscription
@@ -42,9 +42,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _signal() -> SignalDescriptor:
-    return SignalDescriptor(
-        signal_id=SID, tenant_id=uuid4(), asset_id=uuid4(),
+def _signal() -> TagDescriptor:
+    return TagDescriptor(
+        canonical_id="asset:refinery-gc:unit-101:p-101a",
+        tag_name=HANDLE,
         role="discharge_pressure", qudt_unit="http://qudt.org/vocab/unit/PA",
         pressure_reference=PressureReference.gauge,
     )

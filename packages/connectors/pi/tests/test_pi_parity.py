@@ -14,7 +14,7 @@ import httpx
 import pytest
 from fastmcp import Client
 from rca_connector_sdk import SourceBinding
-from rca_contracts import MeasurementSeries, PressureReference, SignalDescriptor, ToolResponse
+from rca_contracts import MeasurementSeries, PressureReference, TagDescriptor, ToolResponse
 
 from rca_connector_pi.server import make_pi_mcp
 
@@ -40,9 +40,10 @@ def _webid(signal_key: str) -> str:
     return "S1" + raw
 
 
-def _signal() -> SignalDescriptor:
-    return SignalDescriptor(
-        signal_id=SID, tenant_id=uuid4(), asset_id=uuid4(),
+def _signal() -> TagDescriptor:
+    return TagDescriptor(
+        canonical_id="asset:refinery-gc:unit-101:p-101a",
+        tag_name="P-101A.discharge_pressure",
         role="discharge_pressure", qudt_unit="http://qudt.org/vocab/unit/PA",
         pressure_reference=PressureReference.gauge,            # PI emits psig
     )

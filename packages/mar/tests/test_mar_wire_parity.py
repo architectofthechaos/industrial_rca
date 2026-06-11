@@ -43,7 +43,7 @@ async def test_mar_resolved_handle_fetches_real_workorders():
     await seed_from_register(repo, REGISTER)
     resolver = MarResolver(repo=repo, tenant_id=TENANT)
     async with httpx.AsyncClient(base_url=MAXIMO_SIM_URL) as http:
-        mcp = make_maximo_mcp(http_client=http, signal_resolver=resolver)   # no static bindings!
+        mcp = make_maximo_mcp(http_client=http, tag_resolver=resolver)   # no static bindings!
         async with Client(mcp) as client:
             res = _parse(await client.call_tool(
                 "maximo.get_workorders", {"request": {"asset_id": str(P101A)}}))

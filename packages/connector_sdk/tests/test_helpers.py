@@ -13,7 +13,7 @@ from rca_connector_sdk.errors import (
 from rca_connector_sdk.provenance import ProvenanceAccumulator, ProvenanceMissingError
 from rca_connector_sdk.retry import with_retry
 from rca_connector_sdk.timeutil import to_utc
-from rca_connector_sdk.units import to_si
+from rca_connector_sdk.units import canonical_unit_for, to_si
 
 UTC = timezone.utc
 
@@ -42,6 +42,28 @@ def test_to_si_refuses_gauge_to_absolute_without_atmos_ref():
 def test_to_si_refuses_unknown_unit():
     with pytest.raises(UnitConversionAmbiguous):
         to_si(1.0, "smoots", "http://qudt.org/vocab/unit/PA")
+
+
+def test_to_si_accepts_none_qudt_unit():
+    # qudt_unit is optional on a TagDescriptor; conversion is keyed by raw_unit
+    assert to_si(1.0, "bar", None) == pytest.approx(100_000.0)
+
+
+def test_canonical_unit_for_maps_known_raw_units():
+    assert canonical_unit_for("psig") == "kPa"
+    assert canonical_unit_for("psi") == "kPa"
+    assert canonical_unit_for("bar") == "kPa"
+    assert canonical_unit_for("degF") == "DEG_C"
+    assert canonical_unit_for("degC") == "DEG_C"
+    assert canonical_unit_for("A") == "A"
+    assert canonical_unit_for("mm/s") == "MilliM-PER-SEC"
+    assert canonical_unit_for("MilliM-PER-SEC") == "MilliM-PER-SEC"
+    assert canonical_unit_for("L/min") == "L-PER-MIN"
+    assert canonical_unit_for("L-PER-MIN") == "L-PER-MIN"
+
+
+def test_canonical_unit_for_unknown_returns_none():
+    assert canonical_unit_for("smoots") is None
 
 
 # ---------- time ----------

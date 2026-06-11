@@ -16,7 +16,7 @@ from rca_contracts import (
     Alarm,
     MeasurementSeries,
     PressureReference,
-    SignalDescriptor,
+    TagDescriptor,
     ToolResponse,
 )
 
@@ -28,9 +28,10 @@ WEBID = "WEBID-P101A-DISCH"
 WEBID_DOWN = "WEBID-DOWN"
 
 
-def _signal(signal_id) -> SignalDescriptor:
-    return SignalDescriptor(
-        signal_id=signal_id, tenant_id=uuid4(), asset_id=uuid4(),
+def _signal(signal_id) -> TagDescriptor:
+    return TagDescriptor(
+        canonical_id="asset:refinery-gc:unit-101:p-101a",
+        tag_name="P-101A.discharge_pressure",
         role="discharge_pressure", qudt_unit="http://qudt.org/vocab/unit/PA",
         pressure_reference=PressureReference.gauge,            # PI emits psig (gauge)
     )

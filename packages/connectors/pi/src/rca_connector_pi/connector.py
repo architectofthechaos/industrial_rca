@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Literal
+from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel
 from rca_connector_sdk import NotFound, RawPoint, build_measurement_series, evidence_tool
-from rca_contracts import Alarm, HistorianMode, MeasurementSeries, Quality, SignalID
+from rca_contracts import Alarm, HistorianMode, MeasurementSeries, Quality
 
 # get_series mode -> PI Web API stream endpoint
 _MODE_PATH = {
@@ -25,14 +26,14 @@ _PRIORITY = {"trip": 1, "warning": 3}
 
 
 class GetSeriesRequest(BaseModel):
-    signal_id: SignalID
+    signal_id: UUID
     start: AwareDatetime
     end: AwareDatetime
     mode: HistorianMode = HistorianMode.stored
 
 
 class GetSummaryRequest(BaseModel):
-    signal_id: SignalID
+    signal_id: UUID
     start: AwareDatetime
     end: AwareDatetime
     aggregation_method: Literal["avg", "min", "max", "stddev", "count"] = "avg"
@@ -40,7 +41,7 @@ class GetSummaryRequest(BaseModel):
 
 
 class GetEventFramesRequest(BaseModel):
-    signal_id: SignalID
+    signal_id: UUID
     start: AwareDatetime
     end: AwareDatetime
 
@@ -67,7 +68,7 @@ class PiSeries:
         items = resp.json()["Items"]
         ctx.prov.record(
             source_query=str(resp.request.url),
-            raw_tags=[ctx.signal.role],
+            raw_tags=[ctx.tag.role],
             record_count=len(items),
         )
         return items
@@ -103,7 +104,7 @@ class PiSummary:
         resp.raise_for_status()
         items = resp.json()["Items"]
         ctx.prov.record(source_query=str(resp.request.url),
-                        raw_tags=[ctx.signal.role], record_count=len(items))
+                        raw_tags=[ctx.tag.role], record_count=len(items))
         return items
 
     def translate(self, ctx, raw) -> MeasurementSeries:
@@ -136,17 +137,19 @@ class PiEventFrames:
         resp.raise_for_status()
         items = resp.json()["Items"]
         ctx.prov.record(source_query=str(resp.request.url),
-                        raw_tags=[ctx.signal.role], record_count=len(items))
+                        raw_tags=[ctx.tag.role], record_count=len(items))
         return items
 
     def translate(self, ctx, raw) -> list[Alarm]:
-        signal = ctx.signal
+        tag = ctx.tag
+        # event-frame requests are tag-scoped; the request's entity id is the asset under audit
+        asset_id = ctx.request.signal_id
         alarms: list[Alarm] = []
         for it in raw:
             level = str(it.get("Template", "")).lower()
             alarms.append(Alarm(
-                asset_id=signal.asset_id,
-                signal_id=signal.signal_id,
+                asset_id=asset_id,
+                tag_name=tag.tag_name,
                 timestamp=datetime.fromisoformat(it["StartTime"].replace("Z", "+00:00")),
                 priority=_PRIORITY.get(level, 5),
                 state="activated",

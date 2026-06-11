@@ -2,7 +2,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from rca_connector_sdk import SignalResolver, SourceBinding
+from rca_connector_sdk import SourceBinding, TagResolver
 from rca_connector_sdk.errors import UnresolvedSignal
 
 from rca_mar.repository import InMemoryRepository
@@ -21,7 +21,7 @@ async def _resolver() -> MarResolver:
 
 
 async def test_satisfies_port():
-    assert isinstance(await _resolver(), SignalResolver)
+    assert isinstance(await _resolver(), TagResolver)
 
 
 async def test_source_binding_returns_external_handle():

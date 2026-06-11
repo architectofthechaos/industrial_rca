@@ -4,7 +4,7 @@ from __future__ import annotations
 import httpx
 from fastmcp import FastMCP
 from rca_connector_sdk import (
-    InMemorySignalResolver,
+    InMemoryTagResolver,
     ToolConfig,
     ToolDeps,
     build_server,
@@ -25,7 +25,7 @@ def make_documents_mcp(
     health_client_factory: ClientFactory | None = None,  # inject for tests
 ) -> FastMCP:
     deps = ToolDeps(
-        signal_resolver=InMemorySignalResolver({}),   # query-scoped: resolver is unused
+        tag_resolver=InMemoryTagResolver({}),   # query-scoped: resolver is unused
         config=ToolConfig(retry_attempts=retry_attempts),
         http_client=http_client,
     )

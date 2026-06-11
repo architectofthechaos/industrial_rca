@@ -1,19 +1,21 @@
 """Wire the PI connector into a FastMCP server with its dependencies."""
 from __future__ import annotations
 
+from uuid import UUID
+
 import httpx
 from fastmcp import FastMCP
 from rca_connector_sdk import (
-    InMemorySignalResolver,
-    SignalResolver,
+    InMemoryTagResolver,
     SourceBinding,
+    TagResolver,
     ToolConfig,
     ToolDeps,
     build_server,
     register,
     register_health,
 )
-from rca_contracts import SignalDescriptor, SignalID
+from rca_contracts import TagDescriptor
 
 from .connector import PiEventFrames, PiSeries, PiSummary
 from .health import ClientFactory, PiHealthProbe, _default_factory
@@ -24,16 +26,16 @@ _VERSION = "0.1.0"
 def make_pi_mcp(
     *,
     http_client: httpx.AsyncClient,
-    signals: dict[SignalID, SignalDescriptor] | None = None,
-    bindings: dict[tuple[SignalID, str], SourceBinding] | None = None,
-    signal_resolver: SignalResolver | None = None,
+    signals: dict[UUID, TagDescriptor] | None = None,
+    bindings: dict[tuple[UUID, str], SourceBinding] | None = None,
+    tag_resolver: TagResolver | None = None,
     source_timezone: str = "UTC",
     retry_attempts: int = 2,
     health_client_factory: ClientFactory | None = None,   # inject for tests
 ) -> FastMCP:
-    resolver = signal_resolver or InMemorySignalResolver(signals or {}, bindings or {})
+    resolver = tag_resolver or InMemoryTagResolver(signals or {}, bindings or {})
     deps = ToolDeps(
-        signal_resolver=resolver,
+        tag_resolver=resolver,
         config=ToolConfig(source_timezone=source_timezone, retry_attempts=retry_attempts),
         http_client=http_client,
     )

@@ -42,7 +42,7 @@ async def test_maximo_uses_mar_resolved_handle():
 
     transport = httpx.ASGITransport(app=_maximo_fake())
     async with httpx.AsyncClient(transport=transport, base_url="http://maximo") as http:
-        mcp = make_maximo_mcp(http_client=http, bindings={}, signal_resolver=resolver)
+        mcp = make_maximo_mcp(http_client=http, bindings={}, tag_resolver=resolver)
         async with Client(mcp) as client:
             res = _parse(await client.call_tool(
                 "maximo.get_workorders", {"request": {"asset_id": str(P101A)}}))

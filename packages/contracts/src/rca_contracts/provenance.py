@@ -12,6 +12,7 @@ class Provenance(StrictModel):
     tool_name: str
     tool_version: str
     source: str                                # e.g. "echo", "pi_historian_main"
+    connection_id: str | None = None           # which configured connection served this data; audit trail
     source_query: str                          # the actual query/URL, sanitized
     queried_at: AwareDatetime                  # UTC
     response_id: UUID                          # unique per invocation; audit FK

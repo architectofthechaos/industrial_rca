@@ -2,24 +2,24 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from uuid import UUID
 
 from asyncua import Client, ua
 from pydantic import BaseModel
 from rca_connector_sdk import SourceBinding, SourceUnavailable, evidence_tool, to_si
-from rca_contracts import Measurement, SignalDescriptor, SignalID
+from rca_contracts import Measurement, TagDescriptor
 
 
 class GetCurrentValueRequest(BaseModel):
-    signal_id: SignalID
+    signal_id: UUID
 
 
-def to_measurement(signal: SignalDescriptor, source: SourceBinding, raw: float) -> Measurement:
+def to_measurement(tag: TagDescriptor, source: SourceBinding, raw: float) -> Measurement:
     """Map a raw OPC UA value to a canonical Measurement (unit-normalized). Module-level
     so it's unit-testable without standing up a server."""
     return Measurement(
-        signal_id=signal.signal_id,
         timestamp=datetime.now(timezone.utc),    # current-value read time
-        value=to_si(raw, source.raw_unit, signal.qudt_unit, signal.pressure_reference),
+        value=to_si(raw, source.raw_unit, tag.qudt_unit, tag.pressure_reference),
         quality="good",
         is_interpolated=False,
     )
@@ -43,7 +43,7 @@ class OpcUaCurrentValue:
         return float(value)
 
     def translate(self, ctx, raw) -> Measurement:
-        return to_measurement(ctx.signal, ctx.source, raw)
+        return to_measurement(ctx.tag, ctx.source, raw)
 
 
 __all__ = ["GetCurrentValueRequest", "OpcUaCurrentValue", "to_measurement"]

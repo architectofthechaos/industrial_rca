@@ -3,19 +3,20 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+from uuid import UUID
 
 from fastmcp import FastMCP
 from rca_connector_sdk import (
-    InMemorySignalResolver,
-    SignalResolver,
+    InMemoryTagResolver,
     SourceBinding,
+    TagResolver,
     ToolConfig,
     ToolDeps,
     build_server,
     register,
     register_health,
 )
-from rca_contracts import SignalDescriptor, SignalID
+from rca_contracts import TagDescriptor
 
 from .connector import OpcUaCurrentValue
 from .health import OpcUaHealthProbe
@@ -27,15 +28,15 @@ def make_opcua_mcp(
     *,
     endpoint: str,
     namespace_uri: str,
-    signals: dict[SignalID, SignalDescriptor] | None = None,
-    bindings: dict[tuple[SignalID, str], SourceBinding] | None = None,   # (signal_id, "opc_ua") -> NodeId string
-    signal_resolver: SignalResolver | None = None,
+    signals: dict[UUID, TagDescriptor] | None = None,
+    bindings: dict[tuple[UUID, str], SourceBinding] | None = None,   # (signal_id, "opc_ua") -> NodeId string
+    tag_resolver: TagResolver | None = None,
     retry_attempts: int = 2,
     opcua_health_factory: Callable[[str], Any] | None = None,            # inject a fake for tests
 ) -> FastMCP:
-    resolver = signal_resolver or InMemorySignalResolver(signals or {}, bindings or {})
+    resolver = tag_resolver or InMemoryTagResolver(signals or {}, bindings or {})
     deps = ToolDeps(
-        signal_resolver=resolver,
+        tag_resolver=resolver,
         config=ToolConfig(endpoint=endpoint, retry_attempts=retry_attempts,
                           extra={"namespace_uri": namespace_uri}),
         http_client=None,                          # OPC UA uses an asyncua client, not httpx

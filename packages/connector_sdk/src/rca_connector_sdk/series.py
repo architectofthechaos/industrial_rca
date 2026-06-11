@@ -26,14 +26,13 @@ def build_measurement_series(
     aggregation_method: str | None = None,
     aggregation_interval=None,
 ) -> MeasurementSeries:
-    signal = ctx.signal
-    assert signal is not None, "build_measurement_series requires a signal-scoped tool"
+    tag = ctx.tag
+    assert tag is not None, "build_measurement_series requires a tag-scoped tool"
     assert ctx.source is not None, "build_measurement_series requires a resolved source binding"
     measurements = [
         Measurement(
-            signal_id=signal.signal_id,
             timestamp=to_utc(p.timestamp, ctx.config.source_timezone),
-            value=to_si(p.value, ctx.source.raw_unit, signal.qudt_unit, signal.pressure_reference),
+            value=to_si(p.value, ctx.source.raw_unit, tag.qudt_unit, tag.pressure_reference),
             quality=p.quality,
             is_interpolated=p.is_interpolated,
         )
@@ -42,7 +41,7 @@ def build_measurement_series(
     if mode is HistorianMode.interpolated and interpolation_method is None:
         interpolation_method = "linear"
     return MeasurementSeries(
-        signal=signal,
+        tag=tag,
         time_basis=build_time_basis(
             source_clock=ctx.source_name,
             source_timezone=ctx.config.source_timezone,
