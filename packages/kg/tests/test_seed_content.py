@@ -1,9 +1,9 @@
 """Hermetic content checks on the KG seed cypher files (Sprint 2a Task 4).
 
-Parses `packages/kg/seed/*.cypher` as text — no Neo4j needed. NOTE: the sprint plan
-budgeted ">=120" ontology nodes, but its enumerated content (3 EquipmentClass + 19
-FailureMode + 35 FailureMechanism + 12 MaintenanceActivity + 5 Subunit + 30 Component)
-sums to 104; we assert the exact per-label counts instead, which is stricter.
+Parses `packages/kg/seed/*.cypher` as text — no Neo4j needed. The sprint plan budgets
+">=120" ontology nodes; the seed holds 122 (3 EquipmentClass + 19 FailureMode +
+41 FailureMechanism + 12 MaintenanceActivity + 5 Subunit + 42 Component), and we
+also assert the exact per-label counts, which is stricter.
 """
 from __future__ import annotations
 
@@ -24,10 +24,10 @@ BB1_FAILURE_MODE_CODES = [
 EXPECTED_LABEL_COUNTS = {
     "EquipmentClass": 3,
     "FailureMode": 19,
-    "FailureMechanism": 35,
+    "FailureMechanism": 41,
     "MaintenanceActivity": 12,
     "Subunit": 5,
-    "Component": 30,
+    "Component": 42,
 }
 
 HIERARCHY_IDS = {
@@ -57,9 +57,9 @@ def test_iso_seed_node_counts_per_label_and_total() -> None:
         ids = _merged_node_ids(ISO_TEXT, label)
         assert len(ids) == expected, f"{label}: expected {expected}, found {len(ids)}"
         all_ids |= ids
-    assert len(all_ids) == sum(EXPECTED_LABEL_COUNTS.values()) == 104
+    assert len(all_ids) == sum(EXPECTED_LABEL_COUNTS.values()) == 122
     distinct_id_values = set(re.findall(r'id: "([^"]+)"', ISO_TEXT))
-    assert len(distinct_id_values) >= 100  # plan budget said >=120 but enumerates 104; see module docstring
+    assert len(distinct_id_values) >= 120  # sprint plan budget for ontology nodes
 
 
 def test_iso_seed_has_all_19_bb1_failure_mode_codes() -> None:

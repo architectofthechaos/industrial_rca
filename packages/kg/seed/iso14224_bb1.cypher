@@ -72,6 +72,12 @@ MERGE (n:FailureMechanism {id: "failure-mechanism:imbalance"}) SET n.name = "Imb
 MERGE (n:FailureMechanism {id: "failure-mechanism:bearing-wear"}) SET n.name = "Bearing wear", n.description = "Degradation of rolling or sliding bearings.", n.iso14224_ref = "B.4";
 MERGE (n:FailureMechanism {id: "failure-mechanism:seal-failure"}) SET n.name = "Seal failure", n.description = "Loss of sealing capability of shaft or static seals.", n.iso14224_ref = "B.4";
 MERGE (n:FailureMechanism {id: "failure-mechanism:lubrication-failure"}) SET n.name = "Lubrication failure", n.description = "Loss, degradation or contamination of lubricant supply.", n.iso14224_ref = "B.4";
+MERGE (n:FailureMechanism {id: "failure-mechanism:fouling"}) SET n.name = "Fouling", n.description = "Deposits building up on heat-transfer or flow surfaces.", n.iso14224_ref = "B.4";
+MERGE (n:FailureMechanism {id: "failure-mechanism:overload"}) SET n.name = "Overload", n.description = "Operation beyond rated load, torque or duty.", n.iso14224_ref = "B.4";
+MERGE (n:FailureMechanism {id: "failure-mechanism:cracking"}) SET n.name = "Cracking", n.description = "Crack formation in pressure-containing or structural parts.", n.iso14224_ref = "B.4";
+MERGE (n:FailureMechanism {id: "failure-mechanism:loose-connection"}) SET n.name = "Loose connection", n.description = "Loose electrical or instrument connection causing intermittent faults.", n.iso14224_ref = "B.4";
+MERGE (n:FailureMechanism {id: "failure-mechanism:calibration-drift"}) SET n.name = "Calibration drift", n.description = "Gradual loss of instrument measurement accuracy.", n.iso14224_ref = "B.4";
+MERGE (n:FailureMechanism {id: "failure-mechanism:ageing"}) SET n.name = "Ageing", n.description = "Time-dependent degradation of elastomers, gaskets and soft parts.", n.iso14224_ref = "B.4";
 
 // ---- MaintenanceActivity (ISO 14224 Table B.6) ------------------------------
 MERGE (n:MaintenanceActivity {id: "maintenance-activity:replace"}) SET n.name = "Replace", n.description = "Replacement of the item by a new or refurbished one.", n.iso14224_ref = "B.6";
@@ -125,6 +131,18 @@ MERGE (n:Component {id: "component:seal-flush-system"}) SET n.name = "Seal flush
 MERGE (n:Component {id: "component:cooling-water-system"}) SET n.name = "Cooling water system", n.description = "Cooling water supply within the boundary.";
 MERGE (n:Component {id: "component:balance-drum"}) SET n.name = "Balance drum", n.description = "Axial thrust balancing device.";
 MERGE (n:Component {id: "component:shaft-seal-gas-system"}) SET n.name = "Shaft seal gas system", n.description = "Buffer/seal gas supply to the shaft seal.";
+MERGE (n:Component {id: "component:inducer"}) SET n.name = "Inducer", n.description = "Axial-flow first stage improving suction performance.";
+MERGE (n:Component {id: "component:diffuser"}) SET n.name = "Diffuser", n.description = "Stationary vanes converting velocity to pressure.";
+MERGE (n:Component {id: "component:bearing-housing"}) SET n.name = "Bearing housing", n.description = "Houses bearings and retains the oil sump.";
+MERGE (n:Component {id: "component:oil-seal"}) SET n.name = "Oil seal", n.description = "Lip or labyrinth seal retaining bearing lubricant.";
+MERGE (n:Component {id: "component:gasket"}) SET n.name = "Gasket", n.description = "Static sealing element between casing joints and flanges.";
+MERGE (n:Component {id: "component:shaft-sleeve"}) SET n.name = "Shaft sleeve", n.description = "Replaceable sleeve protecting the shaft at seal and packing areas.";
+MERGE (n:Component {id: "component:lantern-ring"}) SET n.name = "Lantern ring", n.description = "Spacer ring distributing flush liquid within the packing.";
+MERGE (n:Component {id: "component:throat-bushing"}) SET n.name = "Throat bushing", n.description = "Close-clearance bushing restricting flow into the seal chamber.";
+MERGE (n:Component {id: "component:expansion-joint"}) SET n.name = "Expansion joint", n.description = "Absorbs piping thermal movement at the pump nozzles.";
+MERGE (n:Component {id: "component:foundation-bolt"}) SET n.name = "Foundation bolt", n.description = "Anchors the base frame to the foundation.";
+MERGE (n:Component {id: "component:junction-box"}) SET n.name = "Junction box", n.description = "Terminates and distributes field power and signal wiring.";
+MERGE (n:Component {id: "component:local-gauge"}) SET n.name = "Local gauge", n.description = "Locally mounted pressure or temperature gauge.";
 
 // ---- BB1 HAS_SUBUNIT --------------------------------------------------------
 MATCH (a:EquipmentClass {id: "equipment-class:bb1"})
@@ -134,11 +152,11 @@ MERGE (a)-[:HAS_SUBUNIT]->(b);
 
 // ---- Subunit HAS_COMPONENT --------------------------------------------------
 MATCH (a:Subunit {id: "subunit:pumping-unit"})
-UNWIND ["component:impeller", "component:shaft", "component:casing", "component:wear-ring", "component:mechanical-seal", "component:packing", "component:suction-strainer", "component:balance-drum", "component:shaft-seal-gas-system", "component:radial-bearing", "component:thrust-bearing"] AS dst_id
+UNWIND ["component:impeller", "component:shaft", "component:casing", "component:wear-ring", "component:mechanical-seal", "component:packing", "component:suction-strainer", "component:balance-drum", "component:shaft-seal-gas-system", "component:radial-bearing", "component:thrust-bearing", "component:inducer", "component:diffuser", "component:shaft-sleeve", "component:lantern-ring", "component:throat-bushing", "component:gasket"] AS dst_id
 MATCH (b:Component {id: dst_id})
 MERGE (a)-[:HAS_COMPONENT]->(b);
 MATCH (a:Subunit {id: "subunit:power-transmission"})
-UNWIND ["component:coupling", "component:gearbox", "component:motor", "component:cabling"] AS dst_id
+UNWIND ["component:coupling", "component:gearbox", "component:motor", "component:cabling", "component:bearing-housing", "component:oil-seal"] AS dst_id
 MATCH (b:Component {id: dst_id})
 MERGE (a)-[:HAS_COMPONENT]->(b);
 MATCH (a:Subunit {id: "subunit:lubrication-system"})
@@ -146,11 +164,11 @@ UNWIND ["component:lube-oil-pump", "component:oil-filter", "component:oil-cooler
 MATCH (b:Component {id: dst_id})
 MERGE (a)-[:HAS_COMPONENT]->(b);
 MATCH (a:Subunit {id: "subunit:control-and-monitoring"})
-UNWIND ["component:pressure-instrument", "component:temperature-instrument", "component:vibration-probe", "component:flow-instrument", "component:control-unit", "component:actuating-device", "component:monitoring-device"] AS dst_id
+UNWIND ["component:pressure-instrument", "component:temperature-instrument", "component:vibration-probe", "component:flow-instrument", "component:control-unit", "component:actuating-device", "component:monitoring-device", "component:junction-box", "component:local-gauge"] AS dst_id
 MATCH (b:Component {id: dst_id})
 MERGE (a)-[:HAS_COMPONENT]->(b);
 MATCH (a:Subunit {id: "subunit:miscellaneous"})
-UNWIND ["component:base-frame", "component:piping", "component:valve", "component:cooling-water-system", "component:seal-flush-system"] AS dst_id
+UNWIND ["component:base-frame", "component:piping", "component:valve", "component:cooling-water-system", "component:seal-flush-system", "component:expansion-joint", "component:foundation-bolt"] AS dst_id
 MATCH (b:Component {id: dst_id})
 MERGE (a)-[:HAS_COMPONENT]->(b);
 
@@ -174,11 +192,11 @@ UNWIND ["failure-mechanism:seal-failure", "failure-mechanism:corrosion", "failur
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 MATCH (a:FailureMode {id: "failure-mode:ohe"})
-UNWIND ["failure-mechanism:lubrication-failure", "failure-mechanism:bearing-wear", "failure-mechanism:overheating"] AS dst_id
+UNWIND ["failure-mechanism:lubrication-failure", "failure-mechanism:bearing-wear", "failure-mechanism:overheating", "failure-mechanism:fouling"] AS dst_id
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 MATCH (a:FailureMode {id: "failure-mode:brd"})
-UNWIND ["failure-mechanism:breakage", "failure-mechanism:fatigue", "failure-mechanism:overheating"] AS dst_id
+UNWIND ["failure-mechanism:breakage", "failure-mechanism:fatigue", "failure-mechanism:overheating", "failure-mechanism:overload"] AS dst_id
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 MATCH (a:FailureMode {id: "failure-mode:inl"})
@@ -194,11 +212,11 @@ UNWIND ["failure-mechanism:control-failure", "failure-mechanism:faulty-signal", 
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 MATCH (a:FailureMode {id: "failure-mode:noi"})
-UNWIND ["failure-mechanism:cavitation", "failure-mechanism:bearing-wear", "failure-mechanism:looseness"] AS dst_id
+UNWIND ["failure-mechanism:cavitation", "failure-mechanism:bearing-wear", "failure-mechanism:looseness", "failure-mechanism:loose-connection"] AS dst_id
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 MATCH (a:FailureMode {id: "failure-mode:std"})
-UNWIND ["failure-mechanism:deformation", "failure-mechanism:corrosion", "failure-mechanism:fatigue"] AS dst_id
+UNWIND ["failure-mechanism:deformation", "failure-mechanism:corrosion", "failure-mechanism:fatigue", "failure-mechanism:cracking"] AS dst_id
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 MATCH (a:FailureMode {id: "failure-mode:fof"})
@@ -206,7 +224,7 @@ UNWIND ["failure-mechanism:no-power", "failure-mechanism:control-failure", "fail
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 MATCH (a:FailureMode {id: "failure-mode:pde"})
-UNWIND ["failure-mechanism:faulty-signal", "failure-mechanism:instrument-failure", "failure-mechanism:control-failure"] AS dst_id
+UNWIND ["failure-mechanism:faulty-signal", "failure-mechanism:instrument-failure", "failure-mechanism:control-failure", "failure-mechanism:calibration-drift"] AS dst_id
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 MATCH (a:FailureMode {id: "failure-mode:loo"})
@@ -226,15 +244,15 @@ UNWIND ["failure-mechanism:seal-failure", "failure-mechanism:leakage", "failure-
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 MATCH (a:FailureMode {id: "failure-mode:ser"})
-UNWIND ["failure-mechanism:looseness", "failure-mechanism:contamination"] AS dst_id
+UNWIND ["failure-mechanism:looseness", "failure-mechanism:contamination", "failure-mechanism:ageing"] AS dst_id
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 MATCH (a:FailureMode {id: "failure-mode:oth"})
-UNWIND ["failure-mechanism:external-influence"] AS dst_id
+UNWIND ["failure-mechanism:external-influence", "failure-mechanism:ageing"] AS dst_id
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 MATCH (a:FailureMode {id: "failure-mode:unk"})
-UNWIND ["failure-mechanism:external-influence"] AS dst_id
+UNWIND ["failure-mechanism:external-influence", "failure-mechanism:contamination"] AS dst_id
 MATCH (b:FailureMechanism {id: dst_id})
 MERGE (a)-[:CAUSED_BY]->(b);
 
@@ -377,6 +395,30 @@ MATCH (b:Component {id: dst_id})
 MERGE (a)-[:OCCURS_IN]->(b);
 MATCH (a:FailureMechanism {id: "failure-mechanism:lubrication-failure"})
 UNWIND ["component:lube-oil-pump", "component:oil-filter", "component:radial-bearing"] AS dst_id
+MATCH (b:Component {id: dst_id})
+MERGE (a)-[:OCCURS_IN]->(b);
+MATCH (a:FailureMechanism {id: "failure-mechanism:fouling"})
+UNWIND ["component:oil-cooler", "component:suction-strainer"] AS dst_id
+MATCH (b:Component {id: dst_id})
+MERGE (a)-[:OCCURS_IN]->(b);
+MATCH (a:FailureMechanism {id: "failure-mechanism:overload"})
+UNWIND ["component:motor", "component:shaft"] AS dst_id
+MATCH (b:Component {id: dst_id})
+MERGE (a)-[:OCCURS_IN]->(b);
+MATCH (a:FailureMechanism {id: "failure-mechanism:cracking"})
+UNWIND ["component:casing", "component:impeller"] AS dst_id
+MATCH (b:Component {id: dst_id})
+MERGE (a)-[:OCCURS_IN]->(b);
+MATCH (a:FailureMechanism {id: "failure-mechanism:loose-connection"})
+UNWIND ["component:cabling", "component:junction-box"] AS dst_id
+MATCH (b:Component {id: dst_id})
+MERGE (a)-[:OCCURS_IN]->(b);
+MATCH (a:FailureMechanism {id: "failure-mechanism:calibration-drift"})
+UNWIND ["component:pressure-instrument", "component:local-gauge"] AS dst_id
+MATCH (b:Component {id: dst_id})
+MERGE (a)-[:OCCURS_IN]->(b);
+MATCH (a:FailureMechanism {id: "failure-mechanism:ageing"})
+UNWIND ["component:gasket", "component:oil-seal"] AS dst_id
 MATCH (b:Component {id: dst_id})
 MERGE (a)-[:OCCURS_IN]->(b);
 

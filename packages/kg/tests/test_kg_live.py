@@ -2,8 +2,8 @@
 
 Skips when the bolt port from `rca_kg.config.kg_uri()` is unreachable (run `task
 kg:db:up`). Does NOT wipe the database — counts by the specific seed labels only.
-NOTE: the sprint plan budgeted ">=120" ontology nodes but enumerates 104 (see
-test_seed_content.py); we assert >=104 here since a shared dev DB may hold extras.
+The seed holds 122 ontology nodes (see test_seed_content.py); we assert the sprint
+plan budget of >=120 here since a shared dev DB may hold extras.
 """
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ def test_migrate_and_seed_populate_ontology_and_hierarchy_idempotently() -> None
 
         with driver.session(database=db) as session:
             ontology = _count(session, ONTOLOGY_COUNT_QUERY)
-            assert ontology >= 104  # plan said >=120 but enumerates 104; dev DB may hold extras
+            assert ontology >= 120  # sprint plan budget; dev DB may hold extras
             assert _count(session, HIERARCHY_COUNT_QUERY) == 6  # 1 site + 2 areas + 3 units
             assert _count(session, PATH_QUERY) >= 1  # site -> area-100 -> unit-101 path exists
             total_before = _count(session, "MATCH (n) RETURN count(n) AS c")
