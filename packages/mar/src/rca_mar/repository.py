@@ -129,6 +129,10 @@ class AssetRepository(Protocol):
     async def list_pending_bindings(self, tenant: UUID, *, plant_id: str | None = None,
                                     connection_id: str | None = None,
                                     limit: int = 50) -> list[AliasRow]: ...
+    # Onboarding reconcile/decommission (Sprint 2b §2.3).
+    async def list_active_aliases_for_connection(
+        self, tenant: UUID, connection_id: str) -> list[AliasRow]: ...
+    async def decommission_asset(self, tenant: UUID, asset_id: UUID) -> None: ...
     async def resolution_stats(self, tenant: UUID) -> list[dict[str, Any]]: ...
     # Connection CRUD (Sprint 2b §1.1).
     async def upsert_connection(self, conn: ConnectionRow) -> None: ...
@@ -165,11 +169,22 @@ class InMemoryRepository:
         self.aliases: list[AliasRow] = []
         self.unresolved: dict[tuple[UUID, str, str], dict[str, Any]] = {}
         self.connections: dict[str, ConnectionRow] = {}
+        # AssetDescriptor (the canonical contract) carries decommissioned_at but NOT the
+        # lifecycle `status` column (that lives on the Asset ORM row). Track status here so
+        # the in-memory repo mirrors the PG `assets.status` field for decommission tests;
+        # defaults to "active" for any asset not explicitly decommissioned.
+        self.asset_status: dict[tuple[UUID, UUID], str] = {}
+        # Every upsert_asset/upsert_alias/decommission_asset call bumps this; the onboarding
+        # idempotency test asserts a no-change re-run leaves it untouched (the zero-row-write
+        # guarantee — the activity must skip the write entirely, not write the same value back).
+        self.write_count = 0
 
     async def upsert_asset(self, asset: AssetDescriptor) -> None:
+        self.write_count += 1
         self.assets[(asset.tenant_id, asset.asset_id)] = asset
 
     async def upsert_alias(self, alias: AliasRow) -> None:
+        self.write_count += 1
         # Mirror PostgresRepository.upsert_alias: CLOSE the previous active row
         # (valid_to = new row's valid_from) instead of deleting it, so historical
         # valid_at lookups keep resolving to the alias that was valid at that time.
@@ -248,6 +263,25 @@ class InMemoryRepository:
                           notes=notes)
         self.aliases[i] = updated
         return updated
+
+    async def list_active_aliases_for_connection(self, tenant, connection_id):
+        # Active == open-ended (valid_to IS NULL); mirrors find_active_alias(valid_at=None).
+        return [a for a in self.aliases
+                if a.tenant_id == tenant and a.connection_id == connection_id
+                and a.valid_to is None]
+
+    async def decommission_asset(self, tenant, asset_id):
+        asset = self.assets.get((tenant, asset_id))
+        if asset is None:
+            return
+        self.write_count += 1
+        self.asset_status[(tenant, asset_id)] = "decommissioned"
+        self.assets[(tenant, asset_id)] = asset.model_copy(
+            update={"decommissioned_at": _utcnow()})
+
+    def status_of(self, tenant: UUID, asset_id: UUID) -> str:
+        """Lifecycle status mirror for the assets row (tests assert decommission flips it)."""
+        return self.asset_status.get((tenant, asset_id), "active")
 
     async def list_pending_bindings(self, tenant, *, plant_id=None, connection_id=None, limit=50):
         out: list[AliasRow] = []

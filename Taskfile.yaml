@@ -27,6 +27,7 @@ tasks:
         packages/connectors/documents/src packages/connectors/opc_ua/src
         packages/connectors/mqtt/src packages/connectors/asset_hierarchy/src
         packages/mar/src packages/kg/src packages/connections_api/src
+        packages/onboarding/src
 
   parity:pi:
     desc: Run the tag/operator_log parity tests against the REAL PI simulator (starts + tears it down)
@@ -189,4 +190,12 @@ tasks:
     cmds:
       - docker compose -f infra/docker-compose.yaml up -d --wait postgres neo4j
 
-  # onboarding:worker and api:onboarding are Task 11 (packages/onboarding doesn't exist yet).
+  onboarding:worker:
+    desc: Run the onboarding Temporal worker (serves the rca-onboarding task queue; needs temporal + postgres + neo4j up)
+    cmds:
+      - uv run python -m rca_onboarding.worker
+
+  api:onboarding:
+    desc: Serve the Onboarding trigger/query API (:8300, OpenAPI at /docs) — POST /onboarding/run starts a workflow
+    cmds:
+      - cd packages/onboarding && uv run uvicorn rca_onboarding.api:create_app --factory --port 8300

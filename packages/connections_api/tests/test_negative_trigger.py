@@ -97,3 +97,32 @@ def test_activation_writes_only_the_connections_repo():
     assert repo.aliases == []
     assert repo.unresolved == {}
     assert repo.assets == {}
+
+
+def test_activation_creates_zero_onboarding_runs():
+    """Track 2 extension (§1.6): now that `rca_onboarding` exists, assert concretely that
+    register -> test -> activate leaves the onboarding_runs store EMPTY — the Connections API
+    never starts a workflow, so the runs repo it would write to stays untouched. We drive a
+    real ``InMemoryOnboardingRunsRepo`` (the same store the onboarding worker/API write) as a
+    spy: it is empty before and after activation."""
+    from rca_onboarding.runs_repo import InMemoryOnboardingRunsRepo
+
+    async def _ok_probe(base_url, timeout, extra_config):
+        return TestConnectionResponse(success=True, checks=[])
+
+    runs = InMemoryOnboardingRunsRepo()
+    assert runs.runs == {}
+
+    repo = InMemoryRepository()
+    client = TestClient(create_app(repo=repo, probes={"pi_af": _ok_probe}))
+    body = {
+        "plant_id": "refinery-gc", "category": "hierarchy", "connector_type": "pi_af",
+        "display_name": "AF Main", "base_url": "http://localhost:8001",
+        "auth_config": {"type": "none", "secret_ref": None},
+    }
+    cid = client.post("/connections", json=body).json()["connection_id"]
+    client.post(f"/connections/{cid}/test")
+    assert client.post(f"/connections/{cid}/activate").json()["status"] == "active"
+
+    # Activation fired ZERO onboarding runs — the spy store is still empty.
+    assert runs.runs == {}

@@ -1,0 +1,31 @@
+[project]
+name = "rca-onboarding"
+version = "0.0.1"
+description = "Temporal-backed onboarding pipeline (Sprint 2b Track 2) — crawl, project to MAR/KG, reconcile, coverage report."
+requires-python = ">=3.12"
+dependencies = [
+    "rca-mar",
+    "rca-kg",
+    "rca-connector-asset-hierarchy",
+    "rca-connector-sdk",
+    "rca-contracts",
+    "temporalio>=1.28",
+    "fastapi>=0.110",
+    "uvicorn",
+    "httpx",
+    "pydantic>=2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rca_onboarding"]
+
+[tool.uv.sources]
+rca-contracts = { workspace = true }
+rca-connector-sdk = { workspace = true }
+rca-kg = { workspace = true }
+rca-mar = { workspace = true }
+rca-connector-asset-hierarchy = { workspace = true }

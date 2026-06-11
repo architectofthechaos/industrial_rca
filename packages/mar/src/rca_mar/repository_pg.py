@@ -156,6 +156,22 @@ class PostgresRepository:
             await s.flush()
             return _to_aliasrow(row)
 
+    async def list_active_aliases_for_connection(self, tenant, connection_id):
+        async with self._sf() as s:
+            q = select(AssetAlias).where(and_(
+                AssetAlias.tenant_id == tenant,
+                AssetAlias.connection_id == connection_id,
+                AssetAlias.valid_to.is_(None)))
+            return [_to_aliasrow(r) for r in (await s.execute(q)).scalars()]
+
+    async def decommission_asset(self, tenant, asset_id):
+        async with self._sf() as s, s.begin():
+            await s.execute(
+                update(Asset)
+                .where(and_(Asset.tenant_id == tenant, Asset.asset_id == asset_id))
+                .values(status="decommissioned", decommissioned_at=_utcnow(),
+                        updated_at=func.now()))
+
     async def list_pending_bindings(self, tenant, *, plant_id=None, connection_id=None, limit=50):
         async with self._sf() as s:
             q = select(AssetAlias).where(and_(

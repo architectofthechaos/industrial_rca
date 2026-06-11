@@ -2,7 +2,7 @@
 # Members are the shipped product packages only. `rca_simulator/` is dev-only test
 # infrastructure (ADR-0012) and is intentionally NOT a member — it has its own venv.
 [tool.uv.workspace]
-members = ["packages/contracts", "packages/connector_sdk", "packages/connectors/*", "packages/mar", "packages/kg", "packages/connections_api"]
+members = ["packages/contracts", "packages/connector_sdk", "packages/connectors/*", "packages/mar", "packages/kg", "packages/connections_api", "packages/onboarding"]
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.10", "fastapi>=0.110"]
