@@ -11,7 +11,7 @@ import re
 
 import httpx
 import pytest
-from fake_af import DB_NAME, fake_client, make_fake_af_app
+from fake_af import DB_NAME, DB_PATH, fake_client, make_fake_af_app
 from fastmcp import Client
 from rca_contracts import ToolResponse
 
@@ -32,7 +32,7 @@ EXPECTED = {
 
 def _sim_reachable() -> bool:
     try:
-        return httpx.get(f"{PI_SIM_URL}/openapi.json", timeout=1.0).status_code < 500
+        return httpx.get(f"{PI_SIM_URL}/openapi.json", timeout=1.0).status_code == 200
     except httpx.HTTPError:
         return False
 
@@ -53,9 +53,9 @@ async def test_full_crawl_discovers_exactly_the_four_refplant_assets():
         assert asset.proposed_canonical_id == canonical_id
         assert asset.plant_id == PLANT
         assert asset.vendor_id and asset.vendor_id.startswith("S1")
-        assert asset.vendor_path.startswith("\\\\PI-DEMO\\Refinery-GC\\")
+        assert asset.vendor_path.startswith(DB_PATH + "\\")
     assert by_name["P-101A"].vendor_path == \
-        "\\\\PI-DEMO\\Refinery-GC\\SITE-DEMO\\AREA-100\\UNIT-101\\P-101A"
+        DB_PATH + "\\SITE-DEMO\\AREA-100\\UNIT-101\\P-101A"
 
 
 async def test_hierarchy_nodes_are_one_site_two_areas_three_units_with_parent_wiring():

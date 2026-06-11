@@ -113,3 +113,19 @@ def test_non_mapping_rule_entry_names_its_index(tmp_path):
     f.write_text("version: 1\nrules:\n  - just-a-string\n")
     with pytest.raises(ValueError, match="index 0"):
         load_rules(f)
+
+
+def test_rule_validation_error_names_the_rule_exactly_once(tmp_path):
+    """PatternRule's own ValueError already says `rule 'rule:x':` — the loader must
+    not stack a second `rule rule:x:` prefix on top of it."""
+    f = tmp_path / "rules.yaml"
+    f.write_text("version: 1\n"
+                 "rules:\n"
+                 "  - id: rule:bad_pattern\n"
+                 "    pattern: '(unbalanced'\n"
+                 "    iso14224_class: x\n"
+                 "    confidence: 0.5\n"
+                 "    applies_to: tag\n")
+    with pytest.raises(ValueError) as excinfo:
+        load_rules(f)
+    assert str(excinfo.value).count("rule:bad_pattern") == 1

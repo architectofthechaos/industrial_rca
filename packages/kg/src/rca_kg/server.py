@@ -9,13 +9,11 @@ Assets are MAR's, never the KG's, to return (Phase 1 spec §1.4).
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
-from uuid import uuid4
 
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
-from rca_connector_sdk import NotFound, ProvenanceAccumulator, build_server, map_source_error
+from rca_connector_sdk import NotFound, build_server, map_source_error, ok_response
 from rca_contracts import ToolError, ToolResponse
 
 from .queries import KgGateway
@@ -72,14 +70,6 @@ class PathSegment(BaseModel):
     relationship_to_next: str | None = None  # None terminates the path
 
 
-def _ok(envelope, data, *, tool, source_query, record_count, raw_tags):
-    prov = ProvenanceAccumulator()
-    prov.record(source_query=source_query, record_count=record_count, raw_tags=raw_tags)
-    provenance = prov.build(tool_name=tool, tool_version=_VERSION, source=_SOURCE,
-                            queried_at=datetime.now(timezone.utc), response_id=uuid4())
-    return envelope.ok(data, provenance)
-
-
 def _fail(envelope, exc: Exception):
     if isinstance(exc, ValueError):  # gateway input validation (label/depth/hops)
         return envelope.fail(ToolError(code="validation_failed", message=str(exc),
@@ -118,9 +108,10 @@ def make_kg_mcp(*, gateway: KgGateway) -> FastMCP:
                 raise NotFound(f"{request.label} {request.node_id} not found")
             outgoing = await gateway.outgoing_rel_counts(request.label, request.node_id)
             node = OntologyNode(label=request.label, properties=props, outgoing=outgoing)
-            return _ok(envelope, node, tool="kg.get_ontology_node",
-                       source_query=f"get_node {request.label} {request.node_id}",
-                       record_count=1, raw_tags=[request.node_id])
+            return ok_response(node, tool="kg.get_ontology_node",
+                               version=_VERSION, source=_SOURCE,
+                               source_query=f"get_node {request.label} {request.node_id}",
+                               record_count=1, raw_tags=[request.node_id])
         except Exception as exc:  # noqa: BLE001
             return _fail(envelope, exc)
 
@@ -138,9 +129,11 @@ def make_kg_mcp(*, gateway: KgGateway) -> FastMCP:
                                  mechanisms=row["mechanisms"])
                 for row in rows
             ]
-            return _ok(envelope, entries, tool="kg.list_failure_modes_for_class",
-                       source_query=f"failure_modes_for_class {request.equipment_class_id}",
-                       record_count=len(entries), raw_tags=[e.id for e in entries])
+            return ok_response(entries, tool="kg.list_failure_modes_for_class",
+                               version=_VERSION, source=_SOURCE,
+                               source_query=("failure_modes_for_class"
+                                             f" {request.equipment_class_id}"),
+                               record_count=len(entries), raw_tags=[e.id for e in entries])
         except Exception as exc:  # noqa: BLE001
             return _fail(envelope, exc)
 
@@ -153,11 +146,12 @@ def make_kg_mcp(*, gateway: KgGateway) -> FastMCP:
                 key = request.root_id or request.plant_id or "<any site>"
                 raise NotFound(f"hierarchy root {key} not found")
             tree = _build_tree(rows)
-            return _ok(envelope, tree, tool="kg.get_hierarchy",
-                       source_query=(f"hierarchy root_id={request.root_id}"
-                                     f" plant_id={request.plant_id}"
-                                     f" max_depth={request.max_depth}"),
-                       record_count=len(rows), raw_tags=[row["id"] for row in rows])
+            return ok_response(tree, tool="kg.get_hierarchy",
+                               version=_VERSION, source=_SOURCE,
+                               source_query=(f"hierarchy root_id={request.root_id}"
+                                             f" plant_id={request.plant_id}"
+                                             f" max_depth={request.max_depth}"),
+                               record_count=len(rows), raw_tags=[row["id"] for row in rows])
         except Exception as exc:  # noqa: BLE001
             return _fail(envelope, exc)
 
@@ -173,10 +167,12 @@ def make_kg_mcp(*, gateway: KgGateway) -> FastMCP:
             data = [PathSegment(node={"label": seg["label"], **seg["node"]},
                                 relationship_to_next=seg["rel_to_next"])
                     for seg in segments]
-            return _ok(envelope, data, tool="kg.find_path",
-                       source_query=(f"shortest_path {request.from_id} -> {request.to_id}"
-                                     f" max_hops={request.max_hops}"),
-                       record_count=len(data), raw_tags=[request.from_id, request.to_id])
+            return ok_response(data, tool="kg.find_path", version=_VERSION, source=_SOURCE,
+                               source_query=(f"shortest_path {request.from_id}"
+                                             f" -> {request.to_id}"
+                                             f" max_hops={request.max_hops}"),
+                               record_count=len(data),
+                               raw_tags=[request.from_id, request.to_id])
         except Exception as exc:  # noqa: BLE001
             return _fail(envelope, exc)
 

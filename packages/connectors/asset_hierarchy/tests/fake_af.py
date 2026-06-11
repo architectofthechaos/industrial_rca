@@ -1,6 +1,7 @@
 """Hermetic PI AF fake for crawler tests — mirrors the real simulator field-for-field.
 
-Same routes, JSON casing and semantics as ``rca_simulator/rca_simulator/pi/app.py``
+Same routes (the routes the crawler consumes), JSON casing and semantics as
+``rca_simulator/rca_simulator/pi/app.py``
 (verified against ``rca_simulator/tests/test_pi_af_hierarchy.py``): ``{"Items": [...]}``
 envelopes on list routes, a bare object for single-element GETs, 404 on unknown WebIds,
 ``nameFilter`` as a case-insensitive ``*``/``?`` glob, ``searchFullHierarchy`` flattening
@@ -11,7 +12,9 @@ without padding — computed locally so the sim never enters this venv (ADR-0012
 The tree mirrors refplant: DB "Refinery-GC" -> SITE-DEMO -> AREA-100 -> UNIT-101
 (P-101A, P-101B) / UNIT-102 (P-102A) and AREA-200 -> UNIT-201 (P-103A).
 ``include_mystery=True`` adds MYSTERY-1 (template ``mystery_thing``) under UNIT-102
-for the unknown-class test; count-sensitive tests leave the flag off.
+for the unknown-class test; ``include_nested_child=True`` nests M-101A (template
+``motor``) under P-101A for the nested-asset guard test; count-sensitive tests leave
+both flags off.
 """
 from __future__ import annotations
 
@@ -40,8 +43,16 @@ def _asset_attrs(manufacturer: str, model: str, serial: str, criticality: str,
             ("ServiceDescription", service)]
 
 
-def _hierarchy(include_mystery: bool) -> dict[str, Any]:
+def _hierarchy(include_mystery: bool, include_nested_child: bool) -> dict[str, Any]:
     """Refplant mirror as a plain dict: {name, template, description, children, attributes}."""
+    p_101a: dict[str, Any] = {
+        "name": "P-101A", "template": "centrifugal_pump", "description": "charge pump",
+        "attributes": _asset_attrs("Sulzer", "AHLSTAR-A22-50", "SN-2018-00471",
+                                   "high", "pump.centrifugal", "charge pump")}
+    if include_nested_child:
+        p_101a["children"] = [
+            {"name": "M-101A", "template": "motor", "description": "drive motor",
+             "attributes": [("Manufacturer", "ABB"), ("ServiceDescription", "drive motor")]}]
     unit_102_children = [
         {"name": "P-102A", "template": "centrifugal_pump", "description": "injection pump",
          "attributes": _asset_attrs("Sulzer", "HPX-3100", "SN-2019-00310", "medium",
@@ -57,10 +68,7 @@ def _hierarchy(include_mystery: bool) -> dict[str, Any]:
             {"name": "AREA-100", "template": "Area", "description": "Crude Unit", "children": [
                 {"name": "UNIT-101", "template": "Unit", "description": "Crude Distillation",
                  "children": [
-                     {"name": "P-101A", "template": "centrifugal_pump",
-                      "description": "charge pump",
-                      "attributes": _asset_attrs("Sulzer", "AHLSTAR-A22-50", "SN-2018-00471",
-                                                 "high", "pump.centrifugal", "charge pump")},
+                     p_101a,
                      {"name": "P-101B", "template": "centrifugal_pump",
                       "description": "boiler feed water pump",
                       "attributes": _asset_attrs("Sulzer", "AHLSTAR-A22-50", "SN-2018-00472",
@@ -116,9 +124,10 @@ def _select(children: list[_Element], *, name_filter: str | None,
     return pool[:max(0, max_count)]
 
 
-def make_fake_af_app(include_mystery: bool = False) -> FastAPI:
+def make_fake_af_app(include_mystery: bool = False,
+                     include_nested_child: bool = False) -> FastAPI:
     app = FastAPI(title="Fake PI AF")
-    root = _Element(_hierarchy(include_mystery), DB_PATH)
+    root = _Element(_hierarchy(include_mystery, include_nested_child), DB_PATH)
     db_web_id = webid(DB_PATH)
     by_web_id = {el.web_id: el for el in _self_and_descendants(root)}
 

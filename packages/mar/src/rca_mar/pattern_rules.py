@@ -92,8 +92,10 @@ def _load_rules_cached(path_str: str) -> tuple[PatternRule, ...]:
             raise ValueError(
                 f"pattern-rule file {path_str}: rule {label}: missing key {exc}") from exc
         except (TypeError, ValueError) as exc:
-            # covers non-numeric confidence (float() failures) and PatternRule validation
-            raise ValueError(f"pattern-rule file {path_str}: rule {label}: {exc}") from exc
+            # covers non-numeric confidence (float() failures) and PatternRule validation;
+            # PatternRule's own ValueError already names the rule — don't prefix it twice
+            prefix = "" if str(exc).startswith(f"rule {label!r}") else f"rule {label}: "
+            raise ValueError(f"pattern-rule file {path_str}: {prefix}{exc}") from exc
     return tuple(rules)
 
 

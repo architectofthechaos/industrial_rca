@@ -4,6 +4,9 @@ AF paths are ``\\\\{Server}\\{Database}\\{Site}\\{Area}\\{Unit}\\{Asset}``; dept
 counted in segments below the database (Site=1 ... Asset=4) and elements deeper than
 ``max_depth`` are skipped. Elements templated Site/Area/Unit become hierarchy nodes;
 everything else is an asset proposal whose unit/area/site are its path ancestors.
+Ancestors resolve against hierarchy-templated elements only, so an asset nested under
+another ASSET raises MalformedResponse instead of silently wiring the parent asset in
+as its unit.
 ISO 14224 classes come from ``rca_mar.pattern_rules.apply_rules`` (spec §2.3): the
 template rule and the tag rule are both tried, the higher-confidence match wins, and
 the method is the winning rule id (or "none" with class None / confidence 0.0).
@@ -60,11 +63,14 @@ async def _project(client: httpx.AsyncClient, elements: list[dict[str, Any]], *,
     """Shared projection: elements -> hierarchy nodes + asset proposals.
 
     ``ancestor_webids`` maps path -> WebId for elements NOT in the listing (the
-    subtree-crawl ancestors); the full crawl passes an empty map.
+    subtree-crawl ancestors); the full crawl passes an empty map. The ancestor
+    lookup holds hierarchy-templated elements only (plus ``ancestor_webids``), so
+    an asset whose parent is another asset fails the resolution loudly below.
     """
     in_scope = [el for el in elements if _depth_below_db(el["Path"]) <= max_depth]
     path_to_webid: dict[str, str] = dict(ancestor_webids)
-    path_to_webid.update({el["Path"]: el["WebId"] for el in in_scope})
+    path_to_webid.update({el["Path"]: el["WebId"] for el in in_scope
+                          if (el.get("TemplateName") or "") in _HIERARCHY_KINDS})
 
     hierarchy_nodes: list[DiscoveredHierarchyNode] = []
     asset_elements: list[dict[str, Any]] = []
