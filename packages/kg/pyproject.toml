@@ -7,7 +7,7 @@ dependencies = [
     "rca-contracts",
     "rca-connector-sdk",
     "pydantic>=2",
-    "neo4j>=5",
+    "neo4j>=5,<7",
     "fastmcp>=3",
 ]
 

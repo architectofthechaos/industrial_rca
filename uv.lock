@@ -1732,7 +1732,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=3" },
-    { name = "neo4j", specifier = ">=5" },
+    { name = "neo4j", specifier = ">=5,<7" },
     { name = "pydantic", specifier = ">=2" },
     { name = "rca-connector-sdk", editable = "packages/connector_sdk" },
     { name = "rca-contracts", editable = "packages/contracts" },

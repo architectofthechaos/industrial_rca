@@ -123,6 +123,26 @@ tasks:
     cmds:
       - uv run pytest packages/mar -q --ignore=packages/mar/tests/test_pg_repo.py --ignore=packages/mar/tests/test_mar_wire_parity.py
 
+  kg:db:up:
+    desc: Start the product Neo4j (:7474 http, :7687 bolt) and wait until healthy
+    cmds: ["docker compose -f infra/docker-compose.yaml up -d --wait neo4j"]
+
+  kg:db:down:
+    desc: Stop + remove the product Neo4j
+    cmds: ["docker compose -f infra/docker-compose.yaml rm -sf neo4j"]
+
+  kg:migrate:
+    desc: Apply KG cypher migrations to the running Neo4j
+    cmds: ["uv run python -m rca_kg.migrate"]
+
+  kg:seed:
+    desc: Apply the KG seed files (ISO 14224 BB1 ontology + refplant hierarchy) idempotently
+    cmds: ["uv run python -m rca_kg.seed"]
+
+  test:kg:
+    desc: Run KG tests (live ones skip if Neo4j isn't up)
+    cmds: ["uv run pytest packages/kg -q"]
+
   parity:mar-wire:
     desc: Resolver wire-in — MarResolver drives the Maximo connector against the REAL Maximo sim
     cmds:
