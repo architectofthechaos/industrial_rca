@@ -23,7 +23,7 @@ from rca_contracts import (
     ToolResponse,
 )
 
-from .pattern_rules import PatternRule
+from .pattern_rules import PatternRule, load_rules
 from .repository import AssetRepository
 from .resolution import resolve_asset
 
@@ -62,6 +62,11 @@ def _ok(envelope, data, *, tool, source_query, record_count, raw_tags):
 
 def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
                  rules: list[PatternRule] | None = None) -> FastMCP:
+    """Build the MAR FastMCP server. rules=None uses the default pattern-rule registry
+    (loaded eagerly here so a broken registry fails at construction, not first resolve;
+    load_rules() is cached so this costs nothing); rules=[] disables resolution step 3."""
+    if rules is None:
+        load_rules()  # fail fast on a corrupt/invalid registry file
     mcp = build_server("mar")
 
     @mcp.tool(name="assets.resolve")

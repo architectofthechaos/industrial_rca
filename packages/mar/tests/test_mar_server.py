@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import pytest
 from fastmcp import Client
 from rca_contracts import AssetDescriptor, ResolveAssetOutput, ToolResponse
 
@@ -158,3 +159,15 @@ async def test_exposed_tools_are_exactly_resolve_get_search():
     async with await _client() as c:
         tools = {t.name for t in await c.list_tools()}
         assert tools == {"assets.resolve", "assets.get", "assets.search"}
+
+
+async def test_make_mar_mcp_fails_fast_on_broken_default_registry(tmp_path, monkeypatch):
+    # rules=None loads the registry eagerly at construction: a corrupt registry file
+    # must blow up make_mar_mcp itself, not the first assets.resolve call
+    bad = tmp_path / "broken_rules.yaml"
+    bad.write_text("rules:\n  - id: [unclosed\n")
+    monkeypatch.setenv("MAR_PATTERN_RULES_PATH", str(bad))
+    with pytest.raises(ValueError, match="broken_rules.yaml"):
+        make_mar_mcp(repo=InMemoryRepository(), tenant_id=TENANT)
+    # explicit rules (even []) skip the registry entirely -> construction succeeds
+    assert make_mar_mcp(repo=InMemoryRepository(), tenant_id=TENANT, rules=[]) is not None

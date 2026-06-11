@@ -214,6 +214,15 @@ async def test_default_registry_used_when_no_rules_passed():
     assert pending.mapping_source == "rule:pump_p_tag"
 
 
+async def test_empty_rules_list_disables_step3_entirely():
+    # rules=[] (unlike rules=None, which loads the default registry) turns step 3 off:
+    # a tag the shipped registry WOULD match falls through to step 4 unresolved
+    repo, _pump = await _seeded()
+    r = await resolve_asset(repo, "P-101A", "uns", TENANT, rules=[])
+    assert r.status == "unresolved" and r.asset_id is None and r.mapping_source == "none"
+    assert (TENANT, "uns", "P-101A") in repo.unresolved
+
+
 async def test_unknown_is_unresolved_and_queued():
     repo, _pump = await _seeded()
     r = await resolve_asset(repo, "ZZZ-999", "sap_pm", TENANT)

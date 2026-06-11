@@ -105,6 +105,8 @@ async def resolve_asset(
     min_confidence: float | None = None,
     rules: list[PatternRule] | None = None,
 ) -> AssetResolution:
+    """Run the 4-step resolution. rules=None uses the default registry for step 3;
+    rules=[] disables step 3 entirely (a tag-rule miss falls through to step 4)."""
     if min_confidence is None:
         min_confidence = auto_accept_threshold()
 

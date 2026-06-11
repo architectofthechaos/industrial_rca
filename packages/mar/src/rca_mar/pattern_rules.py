@@ -71,20 +71,29 @@ class RuleMatch:
 
 @lru_cache(maxsize=16)
 def _load_rules_cached(path_str: str) -> tuple[PatternRule, ...]:
-    raw = yaml.safe_load(Path(path_str).read_text(encoding="utf-8"))
+    try:
+        raw = yaml.safe_load(Path(path_str).read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError(f"pattern-rule file {path_str}: invalid YAML: {exc}") from exc
     if not isinstance(raw, dict) or not isinstance(raw.get("rules"), list):
         raise ValueError(f"pattern-rule file {path_str}: expected a mapping with a 'rules' list")
     rules: list[PatternRule] = []
-    for entry in raw["rules"]:
+    for index, entry in enumerate(raw["rules"]):
         if not isinstance(entry, dict):
-            raise ValueError(f"pattern-rule file {path_str}: rule entries must be mappings")
+            raise ValueError(
+                f"pattern-rule file {path_str}: rule at index {index} must be a mapping")
+        label = entry.get("id") or f"at index {index}"
         try:
             rules.append(PatternRule(
                 id=str(entry["id"]), pattern=str(entry["pattern"]),
                 iso14224_class=str(entry["iso14224_class"]),
                 confidence=float(entry["confidence"]), applies_to=str(entry["applies_to"])))
         except KeyError as exc:
-            raise ValueError(f"pattern-rule file {path_str}: rule missing key {exc}") from exc
+            raise ValueError(
+                f"pattern-rule file {path_str}: rule {label}: missing key {exc}") from exc
+        except (TypeError, ValueError) as exc:
+            # covers non-numeric confidence (float() failures) and PatternRule validation
+            raise ValueError(f"pattern-rule file {path_str}: rule {label}: {exc}") from exc
     return tuple(rules)
 
 

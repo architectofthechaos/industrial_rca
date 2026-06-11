@@ -1,4 +1,6 @@
 """Pattern-rule registry — single source of truth for tag/template heuristics (Sprint 2a §1.5)."""
+import re
+
 import pytest
 
 from rca_mar.pattern_rules import PatternRule, RuleMatch, apply_rules, load_rules
@@ -82,5 +84,32 @@ def test_env_override_and_bad_file_rejected(tmp_path, monkeypatch):
 
     bad = tmp_path / "bad.yaml"
     bad.write_text("version: 1\nrules:\n  - id: rule:broken\n    pattern: 'x'\n")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="rule:broken"):   # names the offending rule
         load_rules(bad)
+
+
+def test_corrupt_yaml_raises_valueerror_naming_the_file(tmp_path):
+    corrupt = tmp_path / "corrupt.yaml"
+    corrupt.write_text("rules:\n  - id: [unclosed\n")
+    with pytest.raises(ValueError, match=re.escape(corrupt.name)):
+        load_rules(corrupt)
+
+
+def test_non_numeric_confidence_names_the_offending_rule(tmp_path):
+    f = tmp_path / "rules.yaml"
+    f.write_text("version: 1\n"
+                 "rules:\n"
+                 "  - id: rule:bad_conf\n"
+                 "    pattern: '^X$'\n"
+                 "    iso14224_class: x\n"
+                 "    confidence: very high\n"
+                 "    applies_to: tag\n")
+    with pytest.raises(ValueError, match="rule:bad_conf"):
+        load_rules(f)
+
+
+def test_non_mapping_rule_entry_names_its_index(tmp_path):
+    f = tmp_path / "rules.yaml"
+    f.write_text("version: 1\nrules:\n  - just-a-string\n")
+    with pytest.raises(ValueError, match="index 0"):
+        load_rules(f)
