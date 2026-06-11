@@ -112,6 +112,7 @@ def make_mqtt_mcp(
     broker_host: str = "localhost",
     broker_port: int = 1883,
     paho_health_client_class: Any | None = None,   # inject a fake paho client for tests
+    health_reachable_check: Any | None = None,     # inject a TCP pre-check stub for tests
 ) -> FastMCP:
     """Build the MQTT/UNS MCP server reading the cache `state` (filled by UnsService)."""
     mcp = build_server("mqtt-uns-connector")
@@ -153,6 +154,7 @@ def make_mqtt_mcp(
             broker_host=broker_host,
             broker_port=broker_port,
             paho_client_class=paho_health_client_class,
+            reachable_check=health_reachable_check,
         ),
     )
     return mcp

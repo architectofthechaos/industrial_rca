@@ -89,6 +89,11 @@ class _FakePahoClientClsConnectFail:
 _fake_paho_fail = _FakePahoClientClsConnectFail()
 
 
+def _always_reachable(host: str, port: int, timeout: float) -> bool:
+    """Stub the TCP pre-check for hermetic tests — the fake paho client IS the broker."""
+    return True
+
+
 # ---- _parse_host_port unit tests ----
 
 def test_parse_host_port_defaults():
@@ -114,6 +119,7 @@ async def test_mqtt_health_success_path():
         broker_host="fake-broker",
         broker_port=1883,
         paho_client_class=_fake_paho,
+        reachable_check=_always_reachable,
     )
     checks, version = await probe.run(None, 5.0)
     names = [c.name for c in checks]
@@ -129,6 +135,7 @@ async def test_mqtt_health_failure_path_connect_fails():
         broker_host="dead-broker",
         broker_port=1883,
         paho_client_class=_fake_paho_fail,
+        reachable_check=_always_reachable,   # pass the TCP gate so connect() is what fails
     )
     checks, version = await probe.run(None, 5.0)
     assert checks[0].name == "broker_connect"
@@ -145,6 +152,7 @@ async def test_mqtt_test_connection_tool_via_mcp():
         broker_host="fake-broker",
         broker_port=1883,
         paho_health_client_class=_fake_paho,
+        health_reachable_check=_always_reachable,
     )
     async with Client(mcp) as client:
         tools = {t.name for t in await client.list_tools()}
@@ -166,6 +174,7 @@ async def test_mqtt_test_connection_failure_returns_success_false():
         broker_host="dead-broker",
         broker_port=1883,
         paho_health_client_class=_fake_paho_fail,
+        health_reachable_check=_always_reachable,   # pass the TCP gate so connect() is what fails
     )
     async with Client(mcp) as client:
         result = await client.call_tool("test_connection", {"request": {}})
@@ -175,6 +184,24 @@ async def test_mqtt_test_connection_failure_returns_success_false():
         assert resp.success is False
         assert resp.checks[0].name == "broker_connect"
         assert resp.checks[0].status == "fail"
+
+
+async def test_mqtt_health_unreachable_pre_check_gates_connect():
+    """A failing TCP pre-check fails broker_connect fast, without invoking paho.connect."""
+    def _never_reachable(host: str, port: int, timeout: float) -> bool:
+        return False
+
+    probe = MqttHealthProbe(
+        broker_host="filtered-broker",
+        broker_port=1883,
+        paho_client_class=_fake_paho,          # would succeed if reached — proves the gate ran first
+        reachable_check=_never_reachable,
+    )
+    checks, _ = await probe.run(None, 5.0)
+    assert checks[0].name == "broker_connect"
+    assert checks[0].status == "fail"
+    assert "not reachable" in (checks[0].message or "")
+    assert checks[1].name == "subscribe" and checks[1].status == "skip"
 
 
 # ---- live variant ----

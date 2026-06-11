@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
@@ -46,9 +47,22 @@ def _broker_reachable(host: str, port: int, timeout: float = 2.0) -> bool:
         return False
 
 
-def _run_paho_connect(paho_client_cls: Any, host: str, port: int, timeout: float) -> str:
-    """Blocking: connect + CONNACK + disconnect.  Called via asyncio.to_thread."""
+_ReachableCheck = Callable[[str, int, float], bool]
+
+
+def _run_paho_connect(paho_client_cls: Any, host: str, port: int, timeout: float,
+                      reachable: _ReachableCheck) -> str:
+    """Blocking: connect + CONNACK + disconnect.  Called via asyncio.to_thread.
+
+    A bounded TCP pre-check (``reachable``) runs first: ``paho.connect()`` has no
+    socket-level timeout, so on a *filtered* broker (SYN with no RST) it would block
+    for the OS TCP hold-time (60–120 s) regardless of ``timeout``.  The pre-check bounds
+    that to ``timeout`` and is injectable so hermetic tests can stub it to ``True``.
+    """
     import paho.mqtt.client as mqtt  # noqa: PLC0415
+
+    if not reachable(host, port, timeout):
+        raise ConnectionError(f"broker {host}:{port} not reachable within {timeout}s")
 
     result: list[Any] = []   # [True] on success, [Exception] on failure
 
@@ -88,9 +102,12 @@ def _run_paho_connect(paho_client_cls: Any, host: str, port: int, timeout: float
 
 
 def _run_paho_subscribe(paho_client_cls: Any, host: str, port: int,
-                        topic: str, timeout: float) -> str:
+                        topic: str, timeout: float, reachable: _ReachableCheck) -> str:
     """Blocking: connect + subscribe + SUBACK + disconnect.  Called via asyncio.to_thread."""
     import paho.mqtt.client as mqtt  # noqa: PLC0415
+
+    if not reachable(host, port, timeout):
+        raise ConnectionError(f"broker {host}:{port} not reachable within {timeout}s")
 
     result: list[Any] = []
 
@@ -143,10 +160,13 @@ class MqttHealthProbe:
         broker_host: str,
         broker_port: int = 1883,
         paho_client_class: Any | None = None,
+        reachable_check: _ReachableCheck | None = None,
     ) -> None:
         self._broker_host = broker_host
         self._broker_port = broker_port
         self._paho_cls = paho_client_class
+        # injectable so hermetic tests (fake paho, no real broker) bypass the real TCP probe
+        self._reachable = reachable_check or _broker_reachable
 
     def _get_paho_cls(self) -> Any:
         if self._paho_cls is not None:
@@ -162,7 +182,7 @@ class MqttHealthProbe:
         # 1. broker_connect — TCP connect + CONNACK
         async def _connect() -> str | None:
             return await asyncio.to_thread(
-                _run_paho_connect, paho_cls, host, port, timeout
+                _run_paho_connect, paho_cls, host, port, timeout, self._reachable
             )
 
         gate = await timed_check("broker_connect", _connect)
@@ -175,7 +195,7 @@ class MqttHealthProbe:
         # 2. subscribe — SUBACK on spBv1.0/#
         async def _subscribe() -> str | None:
             return await asyncio.to_thread(
-                _run_paho_subscribe, paho_cls, host, port, _TOPIC, timeout
+                _run_paho_subscribe, paho_cls, host, port, _TOPIC, timeout, self._reachable
             )
 
         checks.append(await timed_check("subscribe", _subscribe))
