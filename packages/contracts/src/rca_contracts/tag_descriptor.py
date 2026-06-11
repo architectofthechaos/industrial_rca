@@ -7,7 +7,10 @@ pipeline's job, not a precondition for the contract.
 """
 from __future__ import annotations
 
+from pydantic import field_validator
+
 from ._base import StrictModel
+from .canonical import parse_canonical_id
 from .enums import PressureReference
 
 
@@ -19,3 +22,9 @@ class TagDescriptor(StrictModel):
     qudt_unit: str | None = None               # canonical QUDT unit/URI
     pressure_reference: PressureReference = PressureReference.not_applicable
     description: str | None = None
+
+    @field_validator("canonical_id")
+    @classmethod
+    def _canonical_id_is_well_formed(cls, value: str) -> str:
+        parse_canonical_id(value)   # raises ValueError on a malformed canonical_id
+        return value

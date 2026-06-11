@@ -14,7 +14,11 @@ from rca_contracts import PressureReference
 
 from .errors import UnitConversionAmbiguous
 
-# raw-unit symbol -> conversion to SI (Pa, K, A, ...)
+# raw-unit symbol -> conversion to the canonical magnitude.
+# Pressure/temperature convert to SI base (Pa, K); current, speed and volumetric flow are
+# already in their canonical form per the simulator's template roles (A, MilliM-PER-SEC,
+# L-PER-MIN), so they pass through identity — `canonical_unit_for` advertises those same
+# targets, keeping the two functions consistent.
 _CONVERSIONS: dict[str, Callable[[float], float]] = {
     "Pa": lambda v: v,
     "kPa": lambda v: v * 1_000.0,
@@ -22,7 +26,12 @@ _CONVERSIONS: dict[str, Callable[[float], float]] = {
     "psi": lambda v: v * 6_894.757293168,
     "K": lambda v: v,
     "degC": lambda v: v + 273.15,
+    "degF": lambda v: (v - 32.0) * 5.0 / 9.0 + 273.15,
     "A": lambda v: v,
+    "mm/s": lambda v: v,
+    "MilliM-PER-SEC": lambda v: v,
+    "L/min": lambda v: v,
+    "L-PER-MIN": lambda v: v,
 }
 
 # gauge/relative pressure symbols -> SI magnitude scale (reference stays gauge)

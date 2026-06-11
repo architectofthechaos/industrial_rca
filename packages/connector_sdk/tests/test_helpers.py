@@ -26,6 +26,26 @@ def test_to_si_converts_known_units():
     assert to_si(5.0, "Pa", "http://qudt.org/vocab/unit/PA") == 5.0
 
 
+def test_to_si_passes_through_speed_flow_and_current():
+    # speed (mm/s), volumetric flow (L/min) and current (A) are already in the canonical
+    # form the template roles assign — identity, not a refusal (see units._CONVERSIONS).
+    assert to_si(4.2, "mm/s", "MilliM-PER-SEC") == pytest.approx(4.2)
+    assert to_si(4.2, "MilliM-PER-SEC", "MilliM-PER-SEC") == pytest.approx(4.2)
+    assert to_si(12.5, "L/min", "L-PER-MIN") == pytest.approx(12.5)
+    assert to_si(33.0, "A", "A") == 33.0
+
+
+def test_to_si_converts_fahrenheit():
+    assert to_si(32.0, "degF", "http://qudt.org/vocab/unit/K") == pytest.approx(273.15)
+
+
+def test_canonical_unit_for_matches_conversion_registry():
+    # every advertised canonical unit must be convertible (no advertise-but-refuse gap)
+    for raw in ("psig", "mm/s", "L/min", "degC", "degF", "A"):
+        assert canonical_unit_for(raw) is not None
+        to_si(1.0, raw, canonical_unit_for(raw))   # must not raise
+
+
 def test_to_si_converts_gauge_pressure_when_reference_is_gauge():
     from rca_contracts import PressureReference
     # psig -> Pa magnitude, staying gauge (no absolute conversion needed)

@@ -73,6 +73,13 @@ def test_tag_descriptor_minimal_optional_fields_default_none():
     assert tag.description is None
 
 
+def test_tag_descriptor_rejects_malformed_canonical_id():
+    import pytest
+    for bad in ("P-101A", "asset:refinery-gc:unit-101", "asset:RG:u:n", "asset::u:n"):
+        with pytest.raises(ValueError):
+            TagDescriptor(canonical_id=bad, tag_name="raw.tag")
+
+
 def test_models_are_frozen():
     tag = _tag()
     with pytest.raises(ValidationError):
