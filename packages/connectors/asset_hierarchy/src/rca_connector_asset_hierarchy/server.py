@@ -13,10 +13,11 @@ from collections.abc import Callable
 
 import httpx
 from fastmcp import FastMCP
-from rca_connector_sdk import build_server, map_source_error, ok_response
+from rca_connector_sdk import build_server, map_source_error, ok_response, register_health
 from rca_contracts import ToolResponse
 
 from . import crawler
+from .health import AssetHierarchyHealthProbe, _default_factory as _health_default_factory
 from .models import CrawlRequest, CrawlResult, CrawlSubtreeRequest
 
 _VERSION = "0.1.0"
@@ -29,10 +30,17 @@ def _default_factory(base_url: str) -> httpx.AsyncClient:
 
 
 def make_asset_hierarchy_mcp(
-    *, http_client_factory: Callable[[str], httpx.AsyncClient] | None = None,
+    *,
+    http_client_factory: Callable[[str], httpx.AsyncClient] | None = None,
+    default_base_url: str | None = None,
 ) -> FastMCP:
     factory = http_client_factory or _default_factory
     mcp = build_server("asset_hierarchy")
+    register_health(
+        mcp,
+        version=_VERSION,
+        probe=AssetHierarchyHealthProbe(_health_default_factory, default_base_url=default_base_url),
+    )
 
     @mcp.tool(name="asset_hierarchy.crawl")
     async def crawl(request: CrawlRequest) -> ToolResponse[CrawlResult]:
