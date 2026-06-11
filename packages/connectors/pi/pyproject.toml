@@ -1,7 +1,7 @@
 [project]
 name = "rca-connector-pi"
 version = "0.0.1"
-description = "PI connector (S13.2) — PI Web API REST -> canonical MCP contract, built on connector_sdk."
+description = "PI-backed entity MCPs (tag + operator_log) — PI Web API REST -> canonical MCP contract, built on connector_sdk."
 requires-python = ">=3.12"
 dependencies = [
     "rca-connector-sdk",

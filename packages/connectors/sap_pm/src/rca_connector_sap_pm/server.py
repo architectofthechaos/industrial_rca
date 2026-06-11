@@ -4,9 +4,9 @@ from __future__ import annotations
 import httpx
 from fastmcp import FastMCP
 from rca_connector_sdk import (
-    InMemorySignalResolver,
-    SignalResolver,
+    InMemoryTagResolver,
     SourceBinding,
+    TagResolver,
     ToolConfig,
     ToolDeps,
     build_server,
@@ -21,13 +21,13 @@ def make_sap_mcp(
     *,
     http_client: httpx.AsyncClient,
     bindings: dict[tuple[AssetID, str], SourceBinding] | None = None,
-    signal_resolver: SignalResolver | None = None,
+    tag_resolver: TagResolver | None = None,
     source_timezone: str = "UTC",                         # SAP AUSVN is tz-less; interpret in this tz
     retry_attempts: int = 2,
 ) -> FastMCP:
-    resolver = signal_resolver or InMemorySignalResolver({}, bindings or {})
+    resolver = tag_resolver or InMemoryTagResolver({}, bindings or {})
     deps = ToolDeps(
-        signal_resolver=resolver,   # asset-scoped: no signals
+        tag_resolver=resolver,   # asset-scoped: no tags
         config=ToolConfig(source_timezone=source_timezone, retry_attempts=retry_attempts),
         http_client=http_client,
     )

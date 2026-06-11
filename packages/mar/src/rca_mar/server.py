@@ -1,10 +1,14 @@
-"""FastMCP server for MAR read/resolve tools (hand-wired; they read MAR's own repository).
+"""FastMCP server for the Asset MCP read/resolve tools (hand-wired; they read MAR's repository).
+
+This is the entity-vocabulary Asset MCP (server name "asset"); MAR is its backing store, so
+provenance keeps source="mar" (the data source) while the registered tool names use the
+entity vocabulary `asset.resolve` / `asset.get` / `asset.search` (spec §7.2 naming discipline).
 
 Reuses the connector_sdk envelope/provenance/error-mapping discipline: every tool returns
 ToolResponse[T] with provenance, and exceptions become a mapped ToolError. status='unresolved'
-/'ambiguous' are SUCCESSFUL results (not errors); assets.get on a missing id is not_found.
+/'ambiguous' are SUCCESSFUL results (not errors); asset.get on a missing id is not_found.
 
-assets.get accepts exactly one of asset_id (UUID) or canonical_id (dual-key identity,
+asset.get accepts exactly one of asset_id (UUID) or canonical_id (dual-key identity,
 Phase 1 spec §2.1); the resolve auto-accept gate defaults to MAR_AUTO_ACCEPT_THRESHOLD
 (env, default 0.92) unless the request sets min_confidence explicitly.
 """
@@ -32,7 +36,7 @@ _SOURCE = "mar"
 
 class ResolveRequest(BaseModel):
     external_id: str
-    source_system: str
+    connection_id: str
     time: AwareDatetime | None = None
     min_confidence: float | None = None  # None -> MAR_AUTO_ACCEPT_THRESHOLD (default 0.92)
 
@@ -58,13 +62,13 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
     load_rules() is cached so this costs nothing); rules=[] disables resolution step 3."""
     if rules is None:
         load_rules()  # fail fast on a corrupt/invalid registry file
-    mcp = build_server("mar")
+    mcp = build_server("asset")
 
-    @mcp.tool(name="assets.resolve")
+    @mcp.tool(name="asset.resolve")
     async def resolve(request: ResolveRequest) -> ToolResponse[ResolveAssetOutput]:
         envelope = ToolResponse[ResolveAssetOutput]
         try:
-            r = await resolve_asset(repo, request.external_id, request.source_system, tenant_id,
+            r = await resolve_asset(repo, request.external_id, request.connection_id, tenant_id,
                                     valid_at=request.time, min_confidence=request.min_confidence,
                                     rules=rules)
             asset = await repo.get_asset(tenant_id, r.asset_id) if r.asset_id else None
@@ -74,22 +78,22 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
                                      canonical_id=asset.canonical_id if asset else None,
                                      confidence=r.confidence,
                                      mapping_source=r.mapping_source, alternatives=alts)
-            return ok_response(out, tool="assets.resolve", version=_VERSION, source=_SOURCE,
-                               source_query=(f"resolve {request.source_system}"
+            return ok_response(out, tool="asset.resolve", version=_VERSION, source=_SOURCE,
+                               source_query=(f"resolve {request.connection_id}"
                                              f":{request.external_id}"),
                                record_count=1 if asset else 0,
-                               raw_tags=[f"{request.source_system}:{request.external_id}"])
+                               raw_tags=[f"{request.connection_id}:{request.external_id}"])
         except Exception as exc:  # noqa: BLE001
             return envelope.fail(map_source_error(exc))
 
-    @mcp.tool(name="assets.get")
+    @mcp.tool(name="asset.get")
     async def get(request: GetRequest) -> ToolResponse[AssetDescriptor]:
         envelope = ToolResponse[AssetDescriptor]
         try:
             if (request.asset_id is None) == (request.canonical_id is None):
                 return envelope.fail(ToolError(
                     code="validation_failed",
-                    message="assets.get requires exactly one of asset_id or canonical_id",
+                    message="asset.get requires exactly one of asset_id or canonical_id",
                     retryable=False))
             if request.asset_id is not None:
                 key = str(request.asset_id)
@@ -100,13 +104,13 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
                 asset = await repo.find_asset_by_canonical_id(tenant_id, request.canonical_id)
             if asset is None:
                 raise NotFound(f"asset {key} not found")
-            return ok_response(asset, tool="assets.get", version=_VERSION, source=_SOURCE,
+            return ok_response(asset, tool="asset.get", version=_VERSION, source=_SOURCE,
                                source_query=f"get {key}", record_count=1,
                                raw_tags=[key])
         except Exception as exc:  # noqa: BLE001
             return envelope.fail(map_source_error(exc))
 
-    @mcp.tool(name="assets.search")
+    @mcp.tool(name="asset.search")
     async def search(request: SearchRequest) -> ToolResponse[list[AssetDescriptor]]:
         envelope = ToolResponse[list[AssetDescriptor]]
         try:
@@ -114,7 +118,7 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
                 tenant_id, iso14224_class=request.iso14224_class, tag_pattern=request.tag_pattern,
                 canonical_id_pattern=request.canonical_id_pattern, criticality=request.criticality,
                 service=request.service, limit=request.limit)
-            return ok_response(assets, tool="assets.search", version=_VERSION, source=_SOURCE,
+            return ok_response(assets, tool="asset.search", version=_VERSION, source=_SOURCE,
                                source_query=(f"search class={request.iso14224_class}"
                                              f" tag={request.tag_pattern}"
                                              f" canonical_id={request.canonical_id_pattern}"),

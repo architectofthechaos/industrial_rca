@@ -26,15 +26,16 @@ tasks:
         packages/connectors/sap_pm/src packages/connectors/maximo/src
         packages/connectors/documents/src packages/connectors/opc_ua/src
         packages/connectors/mqtt/src packages/connectors/asset_hierarchy/src
-        packages/mar/src packages/kg/src
+        packages/mar/src packages/kg/src packages/connections_api/src
+        packages/onboarding/src
 
   parity:pi:
-    desc: Run the PI connector parity test against the REAL PI simulator (starts + tears it down)
+    desc: Run the tag/operator_log parity tests against the REAL PI simulator (starts + tears it down)
     cmds:
       - cd rca_simulator && task up:pi
       - defer: cd rca_simulator && task down:pi
       - sleep 4
-      - uv run pytest packages/connectors/pi/tests/test_pi_parity.py -q -p no:cacheprovider
+      - uv run pytest packages/connectors/pi/tests/test_tag_parity.py -q -p no:cacheprovider
 
   parity:asset_hierarchy:
     desc: Run the asset_hierarchy crawler tests against the REAL PI simulator (AF endpoints live there)
@@ -53,20 +54,20 @@ tasks:
       - uv run pytest packages/connectors/sap_pm/tests/test_sap_pm_parity.py -q -p no:cacheprovider
 
   parity:maximo:
-    desc: Run the Maximo connector parity test against the REAL Maximo simulator (starts + tears down)
+    desc: Run the work_order MCP parity test against the REAL Maximo simulator (starts + tears down)
     cmds:
       - cd rca_simulator && task up:maximo
       - defer: cd rca_simulator && task down:maximo
       - sleep 4
-      - uv run pytest packages/connectors/maximo/tests/test_maximo_parity.py -q -p no:cacheprovider
+      - uv run pytest packages/connectors/maximo/tests/test_work_order_parity.py -q -p no:cacheprovider
 
   parity:documents:
-    desc: Run the Documents connector parity test against the REAL docs simulator (starts + tears down)
+    desc: Run the document MCP parity test against the REAL docs simulator (starts + tears down)
     cmds:
       - cd rca_simulator && task up:documents
       - defer: cd rca_simulator && task down:documents
       - sleep 4
-      - uv run pytest packages/connectors/documents/tests/test_documents_parity.py -q -p no:cacheprovider
+      - uv run pytest packages/connectors/documents/tests/test_document_parity.py -q -p no:cacheprovider
 
   parity:opcua:
     desc: Run the OPC UA connector parity test against the REAL OPC UA simulator (starts + tears down)
@@ -159,3 +160,42 @@ tasks:
       - defer: cd rca_simulator && task down:maximo
       - sleep 4
       - uv run pytest packages/mar/tests/test_mar_wire_parity.py -q -p no:cacheprovider
+
+  api:connections:
+    desc: Serve the Connections REST API (:8200, OpenAPI at /docs) over the configured Postgres MAR
+    cmds:
+      - cd packages/connections_api && uv run uvicorn rca_connections_api.app:create_app --factory --port 8200
+
+  temporal:up:
+    desc: Start the Temporal dev cluster (server :7233 + UI :8080). auto-setup creates temporal/temporal_visibility DBs in the shared postgres; healthcheck may take 20-40s on first boot.
+    cmds:
+      - docker compose -f infra/docker-compose.yaml up -d temporal temporal-ui
+
+  temporal:down:
+    desc: Stop + remove the Temporal dev cluster (server + UI)
+    cmds:
+      - docker compose -f infra/docker-compose.yaml rm -sf temporal temporal-ui
+
+  infra:up:
+    desc: Bring up the full product infra stack (postgres, neo4j, temporal, temporal-ui)
+    cmds:
+      - docker compose -f infra/docker-compose.yaml up -d --wait postgres neo4j temporal temporal-ui
+
+  infra:lite:
+    # Daily-iteration shortcut (risk callout #2): skip the Temporal cluster so that
+    # developers working on MAR/KG/connections don't wait for auto-setup's 20-40s
+    # postgres provisioning on each iteration. Use `task temporal:up` when you need
+    # the onboarding worker.
+    desc: Bring up ONLY postgres + neo4j (skip Temporal — use for MAR/KG-only iteration)
+    cmds:
+      - docker compose -f infra/docker-compose.yaml up -d --wait postgres neo4j
+
+  onboarding:worker:
+    desc: Run the onboarding Temporal worker (serves the rca-onboarding task queue; needs temporal + postgres + neo4j up)
+    cmds:
+      - uv run python -m rca_onboarding.worker
+
+  api:onboarding:
+    desc: Serve the Onboarding trigger/query API (:8300, OpenAPI at /docs) — POST /onboarding/run starts a workflow
+    cmds:
+      - cd packages/onboarding && uv run uvicorn rca_onboarding.api:create_app --factory --port 8300

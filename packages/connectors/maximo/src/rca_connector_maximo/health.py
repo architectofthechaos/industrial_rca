@@ -1,6 +1,10 @@
-"""Health probe for the Maximo connector (Sprint 2a Task 10).
+"""Health probe for the work_order connector (Maximo-backed).
 
-Sub-checks (gate first):
+The work_order entity MCP routes per-request (base_url arrives from the connection
+router), so the probe mirrors the pi TagHealthProbe shape: base_url is per-request, or
+falls back to a configured ``default_base_url`` so ``GET /health`` (base_url=None) still
+probes. Sub-checks unchanged from the old Maximo probe:
+
   reachability       — GET /openapi.json, harvests info.version
   auth               — skipped (no credentials configured — MVP)
   schema:workorders  — GET /maxrest/oslc/os/mxwo?oslc.pageSize=1
@@ -17,30 +21,46 @@ from rca_connector_sdk.health import (
     timed_check,
 )
 
-ClientFactory = Callable[[str | None, float], httpx.AsyncClient]
+ClientFactory = Callable[[str, float], httpx.AsyncClient]
 
 
-def _default_factory(configured_base_url: str) -> ClientFactory:
-    """Return a factory that builds a fresh client from the override or the configured URL."""
-
-    def _make(base_url_override: str | None, timeout: float) -> httpx.AsyncClient:
-        url = base_url_override or configured_base_url
-        return httpx.AsyncClient(base_url=url, timeout=timeout)
-
-    return _make
+def _default_factory(base_url: str, timeout: float) -> httpx.AsyncClient:
+    """Default factory: fresh client for the given URL + timeout."""
+    return httpx.AsyncClient(base_url=base_url, timeout=timeout)
 
 
-class MaximoHealthProbe:
-    """HealthProbe implementation for the Maximo connector."""
+class WorkOrderHealthProbe:
+    """HealthProbe for the Maximo-backed work_order connector.
 
-    def __init__(self, client_factory: ClientFactory) -> None:
-        self._factory = client_factory
+    base_url is per-request (entity MCPs route per connection); ``default_base_url`` feeds
+    the configured upstream so ``GET /health`` (which passes base_url=None) still probes.
+    """
+
+    def __init__(
+        self,
+        client_factory: ClientFactory | None = None,
+        *,
+        default_base_url: str | None = None,
+    ) -> None:
+        self._factory = client_factory or _default_factory
+        self._default_base_url = default_base_url
 
     async def run(self, base_url: str | None, timeout: float) -> ProbeResult:
+        effective_url = base_url or self._default_base_url
+
+        if not effective_url:
+            fail = CheckResult(
+                name="reachability",
+                status="fail",
+                latency_ms=0.0,
+                message="no base_url configured; pass base_url",
+            )
+            return [fail], None
+
         upstream_version: str | None = None
         checks: list[CheckResult] = []
 
-        async with self._factory(base_url, timeout) as client:
+        async with self._factory(effective_url, timeout) as client:
             # 1. reachability gate — harvest upstream_version
             async def _reach() -> str | None:
                 nonlocal upstream_version
@@ -74,4 +94,4 @@ class MaximoHealthProbe:
         return checks, upstream_version
 
 
-__all__ = ["MaximoHealthProbe", "ClientFactory", "_default_factory"]
+__all__ = ["WorkOrderHealthProbe", "ClientFactory", "_default_factory"]

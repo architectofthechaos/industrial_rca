@@ -5,6 +5,7 @@ provenance stamping, unit/time normalization, retry/circuit-breaker, error
 mapping, cost accounting) so connectors only implement source fetch + translate.
 Must never import `rca_simulator` (ADR-0012).
 """
+from .assets import AssetGateway, CanonicalSlugAssetGateway, StaticAssetGateway
 from .context import RawPoint, ToolConfig, ToolContext, ToolDeps
 from .errors import (
     ConnectorError,
@@ -36,12 +37,24 @@ from .ports import (
     Credential,
     CredentialBroker,
     EventSink,
-    InMemorySignalResolver,
+    InMemoryTagResolver,
     NullCostSink,
     NullEventSink,
-    SignalResolver,
     SourceBinding,
     StaticCredentialBroker,
+    TagResolver,
+)
+from .routing import (
+    ConnectionInfo,
+    ConnectionRouter,
+    NoActiveConnection,
+    StaticConnectionRouter,
+)
+from .secrets import (
+    EnvSecretResolver,
+    SecretRef,
+    SecretResolver,
+    UnsupportedSecretScheme,
 )
 from .subscription import RingBuffer, SubscriptionState, run_with_reconnect
 from .provenance import ProvenanceAccumulator, ProvenanceMissingError
@@ -49,7 +62,7 @@ from .responses import ok_response
 from .retry import with_retry
 from .series import build_measurement_series
 from .timeutil import build_time_basis, to_utc
-from .units import to_si
+from .units import canonical_unit_for, to_si
 
 __version__ = "0.0.1"
 
@@ -64,13 +77,19 @@ __all__ = [
     "register_health", "HealthProbe", "ProbeResult", "timed_check", "skipped_check",
     "CheckResult", "HealthReport", "TestConnectionRequest", "TestConnectionResponse",
     # ports
-    "SignalResolver", "CredentialBroker", "CostSink", "EventSink", "Credential", "SourceBinding",
-    "InMemorySignalResolver", "StaticCredentialBroker", "NullCostSink",
+    "TagResolver", "CredentialBroker", "CostSink", "EventSink", "Credential", "SourceBinding",
+    "InMemoryTagResolver", "StaticCredentialBroker", "NullCostSink",
     "NullEventSink", "CollectingEventSink",
+    # connection routing
+    "ConnectionInfo", "ConnectionRouter", "StaticConnectionRouter", "NoActiveConnection",
+    # asset gateway (canonical_id -> vendor tag / source handle)
+    "AssetGateway", "CanonicalSlugAssetGateway", "StaticAssetGateway",
+    # secret refs
+    "SecretRef", "SecretResolver", "EnvSecretResolver", "UnsupportedSecretScheme",
     # streaming primitives
     "RingBuffer", "SubscriptionState", "run_with_reconnect",
     # helpers
-    "to_si", "to_utc", "build_time_basis", "with_retry",
+    "to_si", "canonical_unit_for", "to_utc", "build_time_basis", "with_retry",
     "ProvenanceAccumulator", "ProvenanceMissingError", "ok_response",
     # errors
     "ConnectorError", "SourceUnavailable", "SourceTimeout", "UnresolvedSignal",

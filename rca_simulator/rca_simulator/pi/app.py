@@ -5,12 +5,19 @@ Implements the subset the PI connector calls: ``/streams/{webId}/recorded``,
 PI AF asset-hierarchy surface: ``/assetdatabases`` and ``/elements`` routes
 backed by the element index in :mod:`.af_hierarchy`.
 
+Sprint 2b Track 3 additions:
+  ``GET /points`` — tag discovery (nameFilter glob, maxCount)
+  ``GET /points/{webId}`` — single PI point lookup
+  ``GET /streams/{webId}/value`` — latest/at-time scalar value
+  ``GET /eventframes/{id}`` — single event frame by alarm Name/id
+
 Time params are absolute ISO 8601 (``startTime``/``endTime``). Relative PI time
 syntax ("*-1d") is out of scope for MVP.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from fnmatch import fnmatchcase
 
 from fastapi import FastAPI, HTTPException
 
@@ -117,6 +124,67 @@ def create_app(
                         "Signal": ev.payload.get("signal"),
                     })
         return {"Items": items}
+
+    # ---- PI points discovery (Sprint 2b Track 3) ----------------------------
+    # NOTE: WebIds for PI points use the same encode_webid(signal_key) as the
+    # /streams routes, so a caller can move from tag discovery to stream fetch
+    # using the WebId directly without a separate lookup.
+
+    def _pi_point(signal_key: str) -> dict:
+        """Build a PI point representation for ``signal_key``."""
+        sig = rp.signals[signal_key]
+        units = sig.source_systems[0].units_raw if sig.source_systems else ""
+        return {
+            "WebId": encode_webid(signal_key),
+            "Name": signal_key,
+            "Path": f"\\\\PI-DEMO\\{signal_key}",
+            "Descriptor": sig.display_name,
+            "EngineeringUnits": units,
+        }
+
+    @app.get("/points")
+    def points(nameFilter: str = "*", maxCount: int = DEFAULT_MAX_COUNT):
+        """Tag discovery: returns Items filtered by ``nameFilter`` glob (case-insensitive)."""
+        pattern = nameFilter.lower()
+        filtered = [
+            key for key in rp.signals
+            if fnmatchcase(key.lower(), pattern)
+        ]
+        return {"Items": [_pi_point(key) for key in filtered[:max(0, maxCount)]]}
+
+    @app.get("/points/{web_id}")
+    def point_by_webid(web_id: str):
+        """Single PI point lookup; 404 if the WebId does not resolve to a known signal."""
+        key = resolve(web_id)
+        return _pi_point(key)
+
+    @app.get("/streams/{web_id}/value")
+    def stream_value(web_id: str, time: str | None = None):
+        """Scalar value at ``time`` (ISO 8601); defaults to fixture window_end."""
+        key = resolve(web_id)
+        if time is None:
+            t = rp.time_axis.window_end or rp.time_axis.reference_time
+        else:
+            t = _parse_time(time)
+        value = synthesize.current_value(rp, scenario_id, key, t, seed=seed)
+        return {"Timestamp": _iso(t), "Value": value, "Good": True}
+
+    @app.get("/eventframes/{frame_id}")
+    def eventframe_by_id(frame_id: str):
+        """Single event frame by its alarm Name/id; 404 if not found in any scenario."""
+        for sc_id in rp.scenarios:
+            for ts, ev in events_by_sink(rp, sc_id).get("alarms", []):
+                name = ev.payload.get("alarm_id", "ALARM")
+                if name == frame_id:
+                    duration_min = ev.payload.get("duration_min", 0)
+                    return {
+                        "Name": name,
+                        "StartTime": _iso(ts),
+                        "EndTime": _iso(ts + timedelta(minutes=duration_min)),
+                        "Template": ev.payload.get("level", "alarm"),
+                        "Signal": ev.payload.get("signal"),
+                    }
+        raise HTTPException(status_code=404, detail="Event frame not found")
 
     # ---- PI AF asset hierarchy (Sprint 1 WI3) -------------------------------
     # NOTE: 404 bodies use FastAPI's {"detail": "..."} shape, not PI's

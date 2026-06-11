@@ -30,8 +30,8 @@ async def _client():
 
 async def test_resolve_exact_returns_canonical_id():
     async with await _client() as c:
-        res = await c.call_tool("assets.resolve",
-                                {"request": {"external_id": "CRDU-P101A", "source_system": "maximo"}})
+        res = await c.call_tool("asset.resolve",
+                                {"request": {"external_id": "CRDU-P101A", "connection_id": "refinery-gc.cmms.maximo-default"}})
         resp = _parse(res, ResolveAssetOutput)
         assert resp.error is None and resp.data.status == "resolved"
         assert str(resp.data.asset.asset_id) == str(P101A)
@@ -42,8 +42,8 @@ async def test_resolve_exact_returns_canonical_id():
 
 async def test_resolve_unknown_is_success_unresolved():
     async with await _client() as c:
-        res = await c.call_tool("assets.resolve",
-                                {"request": {"external_id": "ZZZ", "source_system": "sap_pm"}})
+        res = await c.call_tool("asset.resolve",
+                                {"request": {"external_id": "ZZZ", "connection_id": "refinery-gc.cmms.sap-pm-default"}})
         resp = _parse(res, ResolveAssetOutput)
         assert resp.error is None and resp.data.status == "unresolved"
         assert resp.data.asset is None and resp.data.canonical_id is None
@@ -53,16 +53,16 @@ async def test_resolve_env_threshold_honored(monkeypatch):
     # crosswalk confidence 0.85: below the 0.92 default -> unresolved; lowering the env
     # threshold (read per request) flips it to resolved without a request override
     async with await _client() as c:
-        res = _parse(await c.call_tool("assets.resolve",
+        res = _parse(await c.call_tool("asset.resolve",
                                        {"request": {"external_id": "CRDU-P101A",
-                                                    "source_system": "pi_af"}}),
+                                                    "connection_id": "refinery-gc.hierarchy.pi-af-default"}}),
                      ResolveAssetOutput)
         assert res.error is None and res.data.status == "unresolved"
     monkeypatch.setenv("MAR_AUTO_ACCEPT_THRESHOLD", "0.8")
     async with await _client() as c:
-        res = _parse(await c.call_tool("assets.resolve",
+        res = _parse(await c.call_tool("asset.resolve",
                                        {"request": {"external_id": "CRDU-P101A",
-                                                    "source_system": "pi_af"}}),
+                                                    "connection_id": "refinery-gc.hierarchy.pi-af-default"}}),
                      ResolveAssetOutput)
         assert res.error is None and res.data.status == "resolved"
         assert res.data.canonical_id == P101A_CANONICAL
@@ -77,9 +77,9 @@ async def test_resolve_via_injected_pattern_rule_reports_rule_id():
     rule = PatternRule(id="rule:test_pump_tag", pattern=r"^P-\d{3}[A-Z]?$",
                        iso14224_class="pump.centrifugal", confidence=0.95, applies_to="tag")
     async with Client(make_mar_mcp(repo=repo, tenant_id=TENANT, rules=[rule])) as c:
-        res = _parse(await c.call_tool("assets.resolve",
+        res = _parse(await c.call_tool("asset.resolve",
                                        {"request": {"external_id": "P-101A",
-                                                    "source_system": "uns"}}),
+                                                    "connection_id": "refinery-gc.historian.uns-default"}}),
                      ResolveAssetOutput)
         assert res.error is None and res.data.status == "resolved"
         assert res.data.mapping_source == "rule:test_pump_tag"
@@ -89,9 +89,9 @@ async def test_resolve_via_injected_pattern_rule_reports_rule_id():
 async def test_resolve_explicit_min_confidence_overrides_env(monkeypatch):
     monkeypatch.setenv("MAR_AUTO_ACCEPT_THRESHOLD", "0.99")
     async with await _client() as c:
-        res = _parse(await c.call_tool("assets.resolve",
+        res = _parse(await c.call_tool("asset.resolve",
                                        {"request": {"external_id": "CRDU-P101A",
-                                                    "source_system": "pi_af",
+                                                    "connection_id": "refinery-gc.hierarchy.pi-af-default",
                                                     "min_confidence": 0.8}}),
                      ResolveAssetOutput)
         assert res.error is None and res.data.status == "resolved"
@@ -99,22 +99,22 @@ async def test_resolve_explicit_min_confidence_overrides_env(monkeypatch):
 
 async def test_get_by_asset_id_found_and_not_found():
     async with await _client() as c:
-        ok = _parse(await c.call_tool("assets.get", {"request": {"asset_id": str(P101A)}}),
+        ok = _parse(await c.call_tool("asset.get", {"request": {"asset_id": str(P101A)}}),
                     AssetDescriptor)
         assert ok.error is None and ok.data.tag == "P-101A"
         assert ok.data.canonical_id == P101A_CANONICAL
-        miss = _parse(await c.call_tool("assets.get", {"request": {"asset_id": str(uuid4())}}),
+        miss = _parse(await c.call_tool("asset.get", {"request": {"asset_id": str(uuid4())}}),
                       AssetDescriptor)
         assert miss.data is None and miss.error is not None and miss.error.code == "not_found"
 
 
 async def test_get_by_canonical_id():
     async with await _client() as c:
-        ok = _parse(await c.call_tool("assets.get",
+        ok = _parse(await c.call_tool("asset.get",
                                       {"request": {"canonical_id": P101A_CANONICAL}}),
                     AssetDescriptor)
         assert ok.error is None and str(ok.data.asset_id) == str(P101A)
-        miss = _parse(await c.call_tool("assets.get",
+        miss = _parse(await c.call_tool("asset.get",
                                         {"request": {"canonical_id": "asset:nope:u:x"}}),
                       AssetDescriptor)
         assert miss.error is not None and miss.error.code == "not_found"
@@ -122,32 +122,32 @@ async def test_get_by_canonical_id():
 
 async def test_get_requires_exactly_one_key():
     async with await _client() as c:
-        both = _parse(await c.call_tool("assets.get",
+        both = _parse(await c.call_tool("asset.get",
                                         {"request": {"asset_id": str(P101A),
                                                      "canonical_id": P101A_CANONICAL}}),
                       AssetDescriptor)
         assert both.error is not None and both.error.code == "validation_failed"
-        neither = _parse(await c.call_tool("assets.get", {"request": {}}), AssetDescriptor)
+        neither = _parse(await c.call_tool("asset.get", {"request": {}}), AssetDescriptor)
         assert neither.error is not None and neither.error.code == "validation_failed"
 
 
 async def test_search_by_class():
     async with await _client() as c:
         res = _parse(await c.call_tool(
-            "assets.search", {"request": {"iso14224_class": "pump.centrifugal"}}), list[AssetDescriptor])
+            "asset.search", {"request": {"iso14224_class": "pump.centrifugal"}}), list[AssetDescriptor])
         assert res.error is None and all(a.iso14224_class == "pump.centrifugal" for a in res.data)
 
 
 async def test_search_by_canonical_id_pattern():
     async with await _client() as c:
         res = _parse(await c.call_tool(
-            "assets.search",
+            "asset.search",
             {"request": {"canonical_id_pattern": "asset:refinery-gc:unit-101:%"}}),
             list[AssetDescriptor])
         assert res.error is None
         assert {a.canonical_id for a in res.data} == {P101A_CANONICAL}
         res = _parse(await c.call_tool(
-            "assets.search",
+            "asset.search",
             {"request": {"canonical_id_pattern": "asset:refinery-gc:unit-201:%"}}),
             list[AssetDescriptor])
         assert res.error is None
@@ -158,7 +158,7 @@ async def test_exposed_tools_are_exactly_resolve_get_search():
     # hierarchy moved to the KG (Sprint 2): MAR exposes no hierarchy tool anymore
     async with await _client() as c:
         tools = {t.name for t in await c.list_tools()}
-        assert tools == {"assets.resolve", "assets.get", "assets.search"}
+        assert tools == {"asset.resolve", "asset.get", "asset.search"}
 
 
 async def test_make_mar_mcp_fails_fast_on_broken_default_registry(tmp_path, monkeypatch):

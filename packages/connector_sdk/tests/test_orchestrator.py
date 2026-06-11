@@ -4,7 +4,7 @@ Proves hard-fail by construction: success requires recorded provenance + valid
 output; every failure path becomes a ToolError with no data leaked.
 """
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import BaseModel
@@ -12,13 +12,12 @@ from rca_contracts import (
     HistorianMode,
     MeasurementSeries,
     PressureReference,
-    SignalDescriptor,
-    SignalID,
+    TagDescriptor,
 )
 
 from rca_connector_sdk.context import RawPoint, ToolConfig, ToolDeps
 from rca_connector_sdk.orchestrator import evidence_tool
-from rca_connector_sdk.ports import InMemorySignalResolver, SourceBinding
+from rca_connector_sdk.ports import InMemoryTagResolver, SourceBinding
 from rca_connector_sdk.series import build_measurement_series
 
 UTC = timezone.utc
@@ -26,25 +25,26 @@ SID = uuid4()
 
 
 class SeriesRequest(BaseModel):
-    signal_id: SignalID
+    signal_id: UUID
     mode: HistorianMode = HistorianMode.stored
 
 
-def _signal() -> SignalDescriptor:
-    return SignalDescriptor(
-        signal_id=SID, tenant_id=uuid4(), asset_id=uuid4(),
+def _tag() -> TagDescriptor:
+    return TagDescriptor(
+        canonical_id="asset:refinery-gc:unit-101:p-101a",
+        tag_name="P-101A.discharge_pressure",
         role="discharge_pressure", qudt_unit="http://qudt.org/vocab/unit/PA",
         pressure_reference=PressureReference.absolute,
     )
 
 
 def _deps(raw_unit: str = "bar") -> ToolDeps:
-    resolver = InMemorySignalResolver(
-        {SID: _signal()},
+    resolver = InMemoryTagResolver(
+        {SID: _tag()},
         {(SID, "echo"): SourceBinding(handle="echo-handle", raw_unit=raw_unit)},
     )
     return ToolDeps(
-        signal_resolver=resolver,
+        tag_resolver=resolver,
         config=ToolConfig(source_timezone="UTC", retry_attempts=2),
     )
 

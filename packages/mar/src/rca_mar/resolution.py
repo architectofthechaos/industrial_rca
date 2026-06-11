@@ -22,8 +22,10 @@ keeps the unresolved queue (see models.AssetAliasUnresolved deprecation note).
 
 Exact-match rows below threshold are demoted to pending_review ONCE (provenance
 carried over); already-pending rows are a no-op, and human_validated/'manual'
-rows are never demoted. Sources missing from SOURCE_SYSTEM_CATEGORIES also use
-the unresolved queue (source_system_type is NOT NULL and is never guessed).
+rows are never demoted. A write that needs a connection_id with no matching
+`connections` row also uses the unresolved queue (reason 'unknown_connection'):
+an alias FKs its connection, so we never persist a binding for a connection that
+does not exist.
 """
 from __future__ import annotations
 
@@ -34,7 +36,6 @@ from uuid import UUID
 from rca_contracts import ResolveStatus
 
 from .config import auto_accept_threshold
-from .models import SOURCE_SYSTEM_CATEGORIES
 from .pattern_rules import PatternRule, apply_rules, load_rules
 from .repository import AliasRow, AssetRepository
 
@@ -50,42 +51,39 @@ class AssetResolution:
     alternatives: list[UUID] = field(default_factory=list)
 
 
-async def _persist_pending_review(repo: AssetRepository, tenant: UUID, source: str,
+async def _persist_pending_review(repo: AssetRepository, tenant: UUID, connection_id: str,
                                   external_id: str, asset_id: UUID, confidence: float,
                                   method: str) -> None:
     """Bind a single below-threshold candidate as a pending_review alias (§2.5)."""
     asset = await repo.get_asset(tenant, asset_id)
     if asset is None:  # dangling alias target; fall back to the unresolved queue
-        await repo.upsert_unresolved(tenant, source, external_id,
+        await repo.upsert_unresolved(tenant, connection_id, external_id,
                                      {"reason": "candidate_asset_missing", "method": method})
         return
-    category = SOURCE_SYSTEM_CATEGORIES.get(source)
-    if category is None:
-        # Unknown source system: source_system_type is NOT NULL and we won't guess it,
-        # so the candidate goes to the deprecated unresolved queue instead of being
-        # persisted as a pending_review alias with a fabricated category.
-        await repo.upsert_unresolved(tenant, source, external_id,
-                                     {"reason": "unknown_source_system", "method": method,
+    if await repo.get_connection(connection_id) is None:
+        # An alias FKs its connection; we won't persist a binding for a connection that
+        # does not exist. Queue to the deprecated unresolved table instead.
+        await repo.upsert_unresolved(tenant, connection_id, external_id,
+                                     {"reason": "unknown_connection", "method": method,
                                       "candidate": {"canonical_id": asset.canonical_id,
                                                     "confidence": confidence}})
         return
     await repo.upsert_alias(AliasRow(
-        asset_id=asset_id, tenant_id=tenant, source_system=source, external_id=external_id,
+        asset_id=asset_id, tenant_id=tenant, connection_id=connection_id, external_id=external_id,
         valid_from=datetime.now(timezone.utc), valid_to=None,
         mapping_source=method, confidence=confidence, is_primary=False,
-        source_system_type=category,
         resolution_status="pending_review", resolved_by="system",
         candidate_alternatives=[{"canonical_id": asset.canonical_id,
                                  "confidence": confidence, "method": method}]))
 
 
-async def _demote_to_pending_review(repo: AssetRepository, tenant: UUID, source: str,
+async def _demote_to_pending_review(repo: AssetRepository, tenant: UUID, connection_id: str,
                                     external_id: str, row: AliasRow, method: str) -> None:
     """Supersede a below-threshold ACTIVE alias into pending_review ONCE, carrying over the
     original provenance (mapping_source/confidence/is_primary/confirmed_by/notes/...)."""
     asset = await repo.get_asset(tenant, row.asset_id)
     if asset is None:  # dangling alias target; fall back to the unresolved queue
-        await repo.upsert_unresolved(tenant, source, external_id,
+        await repo.upsert_unresolved(tenant, connection_id, external_id,
                                      {"reason": "candidate_asset_missing", "method": method})
         return
     await repo.upsert_alias(replace(
@@ -98,7 +96,7 @@ async def _demote_to_pending_review(repo: AssetRepository, tenant: UUID, source:
 async def resolve_asset(
     repo: AssetRepository,
     external_id: str,
-    source: str,
+    connection_id: str,
     tenant: UUID,
     *,
     valid_at: datetime | None = None,
@@ -112,7 +110,7 @@ async def resolve_asset(
 
     # Step 1: exact active-alias match (reported as 'exact_match' regardless of how
     # the matched row was originally created, e.g. 'authoritative_import' seeds).
-    row = await repo.find_active_alias(tenant, source, external_id, valid_at=valid_at)
+    row = await repo.find_active_alias(tenant, connection_id, external_id, valid_at=valid_at)
     if row is not None:
         # Human judgment outranks the auto-accept threshold: a row a person validated
         # (resolution_status='human_validated') or created (mapping_source='manual') is
@@ -123,23 +121,23 @@ async def resolve_asset(
         if status == "unresolved" and row.resolution_status != "pending_review":
             # demote ONCE; an already-pending row is left untouched so repeated
             # resolves of the same below-threshold id are idempotent (no row churn)
-            await _demote_to_pending_review(repo, tenant, source, external_id,
+            await _demote_to_pending_review(repo, tenant, connection_id, external_id,
                                             row, "exact_match")
         return AssetResolution(status, row.asset_id, row.confidence, "exact_match")
 
-    # Step 2: cross-walk via the same external_id known under other sources
+    # Step 2: cross-walk via the same external_id known under other connections
     candidates = await repo.find_crosswalk_candidates(tenant, external_id)
     distinct = {c.asset_id for c in candidates}
     if len(distinct) == 1:
         aid = next(iter(distinct))
         status = "resolved" if _CROSSWALK_CONFIDENCE >= min_confidence else "unresolved"
         if status == "unresolved":
-            await _persist_pending_review(repo, tenant, source, external_id,
+            await _persist_pending_review(repo, tenant, connection_id, external_id,
                                           aid, _CROSSWALK_CONFIDENCE, "cross_walk")
         return AssetResolution(status, aid, _CROSSWALK_CONFIDENCE, "cross_walk")
     if len(distinct) > 1:
         # equally-scored candidates -> no defensible primary binding; queue, don't bind
-        await repo.upsert_unresolved(tenant, source, external_id,
+        await repo.upsert_unresolved(tenant, connection_id, external_id,
                                      {"reason": "ambiguous_crosswalk",
                                       "candidates": sorted(str(a) for a in distinct)})
         return AssetResolution("ambiguous", None, _CROSSWALK_CONFIDENCE, "cross_walk",
@@ -154,12 +152,12 @@ async def resolve_asset(
         if asset is not None:
             status = "resolved" if match.confidence >= min_confidence else "unresolved"
             if status == "unresolved":
-                await _persist_pending_review(repo, tenant, source, external_id,
+                await _persist_pending_review(repo, tenant, connection_id, external_id,
                                               asset.asset_id, match.confidence, match.rule_id)
             return AssetResolution(status, asset.asset_id, match.confidence, match.rule_id)
 
     # Step 4: unresolved — no candidate at all; deprecated queue keeps working
-    await repo.upsert_unresolved(tenant, source, external_id, {"reason": "no_match"})
+    await repo.upsert_unresolved(tenant, connection_id, external_id, {"reason": "no_match"})
     return AssetResolution("unresolved", None, 0.0, "none")
 
 

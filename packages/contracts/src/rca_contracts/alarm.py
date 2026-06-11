@@ -6,12 +6,12 @@ from typing import Literal
 from pydantic import AwareDatetime
 
 from ._base import StrictModel
-from ._ids import AssetID, SignalID
+from ._ids import AssetID
 
 
 class Alarm(StrictModel):
     asset_id: AssetID
-    signal_id: SignalID | None = None
+    tag_name: str | None = None
     timestamp: AwareDatetime
     priority: int
     state: Literal["activated", "acknowledged", "cleared", "shelved"]

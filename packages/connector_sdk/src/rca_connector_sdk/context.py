@@ -6,16 +6,16 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-from rca_contracts import Quality, SignalDescriptor
+from rca_contracts import Quality, TagDescriptor
 
 from .ports import (
     CostSink,
     Credential,
     CredentialBroker,
     NullCostSink,
-    SignalResolver,
     SourceBinding,
     StaticCredentialBroker,
+    TagResolver,
 )
 from .provenance import ProvenanceAccumulator
 
@@ -34,7 +34,7 @@ class RawPoint:
 class ToolConfig:
     """Per-deployment config (source-side wiring, not the MCP contract).
 
-    Note: the source raw unit is per-signal and comes from the resolver's
+    Note: the source raw unit is per-tag and comes from the resolver's
     SourceBinding, not from here.
     """
 
@@ -49,7 +49,7 @@ class ToolConfig:
 class ToolDeps:
     """Everything the SDK needs to run a tool, injected at server-build time."""
 
-    signal_resolver: SignalResolver
+    tag_resolver: TagResolver
     config: ToolConfig
     credential_broker: CredentialBroker = field(default_factory=StaticCredentialBroker)
     cost_sink: CostSink = field(default_factory=NullCostSink)
@@ -62,7 +62,7 @@ class ToolContext:
 
     request: Any
     config: ToolConfig
-    signal: SignalDescriptor | None             # None for asset-scoped / query-scoped tools
+    tag: TagDescriptor | None                   # None for asset-scoped / query-scoped tools
     source: SourceBinding | None                # None for query-scoped tools (e.g. documents.search)
     source_name: str                            # source system id, e.g. "pi", "sap_pm"
     prov: ProvenanceAccumulator

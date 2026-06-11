@@ -2,14 +2,15 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel
 from rca_connector_sdk import RawPoint, build_measurement_series, evidence_tool
-from rca_contracts import HistorianMode, MeasurementSeries, SignalID
+from rca_contracts import HistorianMode, MeasurementSeries
 
 
 class GetSeriesRequest(BaseModel):
-    signal_id: SignalID
+    signal_id: UUID
     mode: HistorianMode = HistorianMode.stored
 
 
@@ -24,7 +25,7 @@ class EchoSeries:
         body = resp.json()
         ctx.prov.record(
             source_query=str(resp.request.url),
-            raw_tags=[ctx.signal.role],
+            raw_tags=[ctx.tag.role],
             record_count=len(body["points"]),
         )
         return body["points"]

@@ -1,18 +1,20 @@
 """Ports for services the SDK depends on but that aren't built yet.
 
 Each is a Protocol with a trivial default implementation, so connectors are
-buildable before the real TRS / MAR / credential-broker / cost services exist.
+buildable before the real MAR / onboarding / credential-broker / cost services exist.
 
-The SignalResolver stands in for TRS: it canonicalizes a signal AND provides the
-per-source binding (the source-side handle + the raw unit the source emits), which
-is the alias information TRS will eventually own (ADR-0001).
+The TagResolver stands in for the onboarding registry: it canonicalizes an entity into
+a TagDescriptor AND provides the per-source binding (the source-side handle + the raw
+unit the source emits), which is the alias information onboarding will eventually own
+(ADR-0001).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
+from uuid import UUID
 
-from rca_contracts import AssetID, SignalDescriptor, SignalID
+from rca_contracts import TagDescriptor
 
 from .errors import UnresolvedSignal
 
@@ -26,17 +28,17 @@ class Credential:
 
 @dataclass(frozen=True)
 class SourceBinding:
-    """How a canonical signal maps onto one source: its handle + the unit it emits."""
+    """How a canonical entity maps onto one source: its handle + the unit it emits."""
 
     handle: str          # PI WebID / OPC UA NodeId / Maximo location / SAP EQUNR / ...
-    raw_unit: str        # the unit the source emits this signal's values in
+    raw_unit: str        # the unit the source emits this entity's values in
 
 
 @runtime_checkable
-class SignalResolver(Protocol):
-    async def resolve(self, signal_id: SignalID) -> SignalDescriptor: ...
-    # entity_id is a signal_id (signal-scoped tools) or an asset_id (asset-scoped tools)
-    async def source_binding(self, entity_id: SignalID | AssetID, source: str) -> SourceBinding: ...
+class TagResolver(Protocol):
+    async def resolve(self, entity_id: UUID) -> TagDescriptor: ...
+    # entity_id is a tag/signal id (signal-scoped tools) or an asset_id (asset-scoped tools)
+    async def source_binding(self, entity_id: UUID, source: str) -> SourceBinding: ...
 
 
 @runtime_checkable
@@ -52,28 +54,28 @@ class CostSink(Protocol):
 @runtime_checkable
 class EventSink(Protocol):
     """Discovery/ingestion events a streaming connector emits (e.g. MQTT BIRTH alias
-    candidates the TRS onboarding workflow later consumes)."""
+    candidates the onboarding workflow later consumes)."""
     def emit(self, event: dict) -> None: ...
 
 
 # ---- default implementations (dev / echo) ----
 
-class InMemorySignalResolver:
+class InMemoryTagResolver:
     def __init__(
         self,
-        signals: dict[SignalID, SignalDescriptor],
-        bindings: dict[tuple[SignalID, str], SourceBinding] | None = None,
+        tags: dict[UUID, TagDescriptor],
+        bindings: dict[tuple[UUID, str], SourceBinding] | None = None,
     ) -> None:
-        self._signals = dict(signals)
+        self._tags = dict(tags)
         self._bindings = dict(bindings or {})
 
-    async def resolve(self, signal_id: SignalID) -> SignalDescriptor:
+    async def resolve(self, entity_id: UUID) -> TagDescriptor:
         try:
-            return self._signals[signal_id]
+            return self._tags[entity_id]
         except KeyError:
-            raise UnresolvedSignal(f"signal {signal_id} not found in resolver") from None
+            raise UnresolvedSignal(f"tag {entity_id} not found in resolver") from None
 
-    async def source_binding(self, entity_id: SignalID | AssetID, source: str) -> SourceBinding:
+    async def source_binding(self, entity_id: UUID, source: str) -> SourceBinding:
         try:
             return self._bindings[(entity_id, source)]
         except KeyError:
@@ -101,7 +103,7 @@ class NullEventSink:
 
 
 class CollectingEventSink:
-    """In-memory sink for dev/tests; stands in for the TRS alias-candidate intake."""
+    """In-memory sink for dev/tests; stands in for the onboarding alias-candidate intake."""
     def __init__(self) -> None:
         self.events: list[dict] = []
 
@@ -110,7 +112,7 @@ class CollectingEventSink:
 
 
 __all__ = [
-    "Credential", "SourceBinding", "SignalResolver", "CredentialBroker", "CostSink", "EventSink",
-    "InMemorySignalResolver", "StaticCredentialBroker", "NullCostSink",
+    "Credential", "SourceBinding", "TagResolver", "CredentialBroker", "CostSink", "EventSink",
+    "InMemoryTagResolver", "StaticCredentialBroker", "NullCostSink",
     "NullEventSink", "CollectingEventSink",
 ]

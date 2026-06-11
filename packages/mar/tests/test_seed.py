@@ -20,6 +20,12 @@ CANONICAL_ID_RE = re.compile(r"^asset:[a-z0-9-]+:[a-z0-9-]+:[a-z0-9-]+$")
 P101A_WEBID = "S1XFxQSS1ERU1PXFJlZmluZXJ5LUdDXFNJVEUtREVNT1xBUkVBLTEwMFxVTklULTEwMVxQLTEwMUE"
 P101A_AF_PATH = r"\\PI-DEMO\Refinery-GC\SITE-DEMO\AREA-100\UNIT-101\P-101A"
 
+# Synth default connection ids the seed mints per legacy source (Sprint 2b §1.2).
+CONN_MAXIMO = "refinery-gc.cmms.maximo-default"
+CONN_SAP = "refinery-gc.cmms.sap-pm-default"
+CONN_PI_AF = "refinery-gc.hierarchy.pi-af-default"
+CONN_UNS = "refinery-gc.historian.uns-default"
+
 
 async def test_seed_populates_assets_and_aliases():
     repo = InMemoryRepository()
@@ -30,12 +36,12 @@ async def test_seed_populates_assets_and_aliases():
     assert p101a.criticality == "A"                 # high -> A mapping
     assert p101a.plant_id == "refinery-gc"
 
-    assert await repo.source_handle_for(TENANT, P101A, "maximo") == "CRDU-P101A"
-    assert await repo.source_handle_for(TENANT, P101A, "sap_pm") == "10001234"
-    assert await repo.source_handle_for(TENANT, P101A, "pi_af") == P101A_WEBID
-    assert await repo.source_handle_for(TENANT, P101A, "uns") == "crude.p101a"
+    assert await repo.source_handle_for(TENANT, P101A, CONN_MAXIMO) == "CRDU-P101A"
+    assert await repo.source_handle_for(TENANT, P101A, CONN_SAP) == "10001234"
+    assert await repo.source_handle_for(TENANT, P101A, CONN_PI_AF) == P101A_WEBID
+    assert await repo.source_handle_for(TENANT, P101A, CONN_UNS) == "crude.p101a"
 
-    pi_af = await repo.find_active_alias(TENANT, "pi_af", P101A_WEBID, valid_at=None)
+    pi_af = await repo.find_active_alias(TENANT, CONN_PI_AF, P101A_WEBID, valid_at=None)
     assert pi_af is not None and pi_af.vendor_path == P101A_AF_PATH
 
 
@@ -128,13 +134,13 @@ async def test_seed_accepts_mapping_external_id_with_vendor_path(tmp_path):
     repo = InMemoryRepository()
     await seed_from_register(repo, register)
 
-    pi_af = await repo.find_active_alias(TENANT, "pi_af", web_id, valid_at=None)
+    pi_af = await repo.find_active_alias(TENANT, CONN_PI_AF, web_id, valid_at=None)
     assert pi_af is not None
     assert pi_af.external_id == web_id
     assert pi_af.vendor_path == af_path
     assert pi_af.asset_id == P101A
 
-    maximo = await repo.find_active_alias(TENANT, "maximo", "CRDU-P101A", valid_at=None)
+    maximo = await repo.find_active_alias(TENANT, CONN_MAXIMO, "CRDU-P101A", valid_at=None)
     assert maximo is not None and maximo.vendor_path is None        # string form: back-compat
 
 
@@ -181,14 +187,25 @@ async def test_seed_rejects_mapping_without_external_id(tmp_path):
         await seed_from_register(InMemoryRepository(), register)
 
 
-async def test_seed_aliases_carry_source_system_type():
+async def test_seed_creates_connection_rows_and_aliases_fk_them():
     repo = InMemoryRepository()
     await seed_from_register(repo, REGISTER)
-    by_source = {a.source_system: a for a in repo.aliases if a.asset_id == P101A}
-    assert by_source["maximo"].source_system_type == "cmms"
-    assert by_source["sap_pm"].source_system_type == "cmms"
-    assert by_source["pi_af"].source_system_type == "asset_hierarchy"
-    assert by_source["uns"].source_system_type == "historian"
-    assert all(a.mapping_source == "authoritative_import" for a in by_source.values())
-    assert all(a.resolution_status == "auto_resolved" for a in by_source.values())
-    assert all(a.resolved_by == "system" for a in by_source.values())
+
+    # one default connection per legacy source, with the synth ids/categories/statuses
+    conns = {c.connection_id: c for c in await repo.list_connections()}
+    assert set(conns) == {CONN_MAXIMO, CONN_SAP, CONN_PI_AF, CONN_UNS}
+    assert conns[CONN_MAXIMO].category == "cmms" and conns[CONN_MAXIMO].status == "active"
+    # sap_pm is parked disabled so it never clashes with maximo on the active cmms slot
+    assert conns[CONN_SAP].category == "cmms" and conns[CONN_SAP].status == "disabled"
+    assert conns[CONN_PI_AF].category == "hierarchy" and conns[CONN_PI_AF].status == "active"
+    assert conns[CONN_UNS].category == "historian" and conns[CONN_UNS].status == "active"
+    assert conns[CONN_PI_AF].extra_config == {"database_name": "Refinery-GC"}
+    assert all(c.auth_config == {"type": "none", "secret_ref": None} for c in conns.values())
+
+    # every alias FKs one of the synth connections
+    by_conn = {a.connection_id: a for a in repo.aliases if a.asset_id == P101A}
+    assert set(by_conn) == {CONN_MAXIMO, CONN_SAP, CONN_PI_AF, CONN_UNS}
+    assert all(a.connection_id in conns for a in repo.aliases)
+    assert all(a.mapping_source == "authoritative_import" for a in by_conn.values())
+    assert all(a.resolution_status == "auto_resolved" for a in by_conn.values())
+    assert all(a.resolved_by == "system" for a in by_conn.values())

@@ -13,7 +13,7 @@ from rca_connector_sdk.errors import (
 from rca_connector_sdk.provenance import ProvenanceAccumulator, ProvenanceMissingError
 from rca_connector_sdk.retry import with_retry
 from rca_connector_sdk.timeutil import to_utc
-from rca_connector_sdk.units import to_si
+from rca_connector_sdk.units import canonical_unit_for, to_si
 
 UTC = timezone.utc
 
@@ -24,6 +24,26 @@ def test_to_si_converts_known_units():
     assert to_si(1.0, "bar", "http://qudt.org/vocab/unit/PA") == pytest.approx(100_000.0)
     assert to_si(20.0, "degC", "http://qudt.org/vocab/unit/K") == pytest.approx(293.15)
     assert to_si(5.0, "Pa", "http://qudt.org/vocab/unit/PA") == 5.0
+
+
+def test_to_si_passes_through_speed_flow_and_current():
+    # speed (mm/s), volumetric flow (L/min) and current (A) are already in the canonical
+    # form the template roles assign — identity, not a refusal (see units._CONVERSIONS).
+    assert to_si(4.2, "mm/s", "MilliM-PER-SEC") == pytest.approx(4.2)
+    assert to_si(4.2, "MilliM-PER-SEC", "MilliM-PER-SEC") == pytest.approx(4.2)
+    assert to_si(12.5, "L/min", "L-PER-MIN") == pytest.approx(12.5)
+    assert to_si(33.0, "A", "A") == 33.0
+
+
+def test_to_si_converts_fahrenheit():
+    assert to_si(32.0, "degF", "http://qudt.org/vocab/unit/K") == pytest.approx(273.15)
+
+
+def test_canonical_unit_for_matches_conversion_registry():
+    # every advertised canonical unit must be convertible (no advertise-but-refuse gap)
+    for raw in ("psig", "mm/s", "L/min", "degC", "degF", "A"):
+        assert canonical_unit_for(raw) is not None
+        to_si(1.0, raw, canonical_unit_for(raw))   # must not raise
 
 
 def test_to_si_converts_gauge_pressure_when_reference_is_gauge():
@@ -42,6 +62,28 @@ def test_to_si_refuses_gauge_to_absolute_without_atmos_ref():
 def test_to_si_refuses_unknown_unit():
     with pytest.raises(UnitConversionAmbiguous):
         to_si(1.0, "smoots", "http://qudt.org/vocab/unit/PA")
+
+
+def test_to_si_accepts_none_qudt_unit():
+    # qudt_unit is optional on a TagDescriptor; conversion is keyed by raw_unit
+    assert to_si(1.0, "bar", None) == pytest.approx(100_000.0)
+
+
+def test_canonical_unit_for_maps_known_raw_units():
+    assert canonical_unit_for("psig") == "kPa"
+    assert canonical_unit_for("psi") == "kPa"
+    assert canonical_unit_for("bar") == "kPa"
+    assert canonical_unit_for("degF") == "DEG_C"
+    assert canonical_unit_for("degC") == "DEG_C"
+    assert canonical_unit_for("A") == "A"
+    assert canonical_unit_for("mm/s") == "MilliM-PER-SEC"
+    assert canonical_unit_for("MilliM-PER-SEC") == "MilliM-PER-SEC"
+    assert canonical_unit_for("L/min") == "L-PER-MIN"
+    assert canonical_unit_for("L-PER-MIN") == "L-PER-MIN"
+
+
+def test_canonical_unit_for_unknown_returns_none():
+    assert canonical_unit_for("smoots") is None
 
 
 # ---------- time ----------

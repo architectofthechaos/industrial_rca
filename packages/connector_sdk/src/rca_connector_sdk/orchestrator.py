@@ -55,17 +55,19 @@ class EvidenceTool:
             response_id = uuid4()
             envelope: Any = ToolResponse[meta.response]  # type: ignore[name-defined]
             try:
-                # signal-scoped tools carry signal_id; asset-scoped tools (work orders,
-                # notifications) carry asset_id; query-scoped tools (documents.search) carry neither.
-                # Resolve a SignalDescriptor only for signals, and a source binding only when the
-                # request names a primary entity.
+                # tag/signal-scoped tools carry signal_id (or entity_id); asset-scoped tools
+                # (work orders, notifications) carry asset_id; query-scoped tools
+                # (documents.search) carry neither. Resolve a TagDescriptor only for tag-scoped
+                # requests, and a source binding only when the request names a primary entity.
                 signal_id = getattr(req, "signal_id", None)
-                entity_id = signal_id if signal_id is not None else getattr(req, "asset_id", None)
-                signal = await deps.signal_resolver.resolve(signal_id) if signal_id is not None else None
-                source = (await deps.signal_resolver.source_binding(entity_id, meta.source)
+                tag_entity_id = signal_id if signal_id is not None else getattr(req, "entity_id", None)
+                entity_id = tag_entity_id if tag_entity_id is not None else getattr(req, "asset_id", None)
+                tag = (await deps.tag_resolver.resolve(tag_entity_id)
+                       if tag_entity_id is not None else None)
+                source = (await deps.tag_resolver.source_binding(entity_id, meta.source)
                           if entity_id is not None else None)
                 credential = await deps.credential_broker.get(deps.config.credential_ref)
-                ctx = ToolContext(request=req, config=deps.config, signal=signal, source=source,
+                ctx = ToolContext(request=req, config=deps.config, tag=tag, source=source,
                                   source_name=meta.source, prov=prov, credential=credential,
                                   http=deps.http_client)
 

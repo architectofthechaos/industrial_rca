@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import httpx
 from fastmcp import Client
-from rca_contracts import MeasurementSeries, SignalDescriptor, ToolResponse
+from rca_contracts import MeasurementSeries, TagDescriptor, ToolResponse
 
 from rca_connector_echo.echo_source import build_echo_source
 from rca_connector_echo.server import make_echo_mcp
@@ -17,9 +17,10 @@ SID = uuid4()
 DOWN = uuid4()
 
 
-def _signal(signal_id) -> SignalDescriptor:
-    return SignalDescriptor(
-        signal_id=signal_id, tenant_id=uuid4(), asset_id=uuid4(),
+def _signal(signal_id) -> TagDescriptor:
+    return TagDescriptor(
+        canonical_id="asset:refinery-gc:unit-101:p-101a",
+        tag_name=str(signal_id),
         role="discharge_pressure", qudt_unit="http://qudt.org/vocab/unit/PA",
     )
 
