@@ -14,7 +14,7 @@ MAR-backed (wired during onboarding); these implementations cover dev/tests:
 """
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from rca_contracts import parse_canonical_id
 
@@ -86,4 +86,41 @@ class StaticAssetGateway:
             ) from exc
 
 
-__all__ = ["AssetGateway", "CanonicalSlugAssetGateway", "StaticAssetGateway"]
+class MarAssetGateway(CanonicalSlugAssetGateway):
+    """AssetGateway backed by MAR's asset register (D13/G28). Resolves (canonical_id, category)
+    -> source handle (e.g. the Maximo location) via: canonical_id -> asset_id ->
+    active (plant, category) connection -> source_handle_for. Unresolved -> NotFound (typed skip,
+    never a silent empty)."""
+
+    def __init__(self, *, repo: Any, tenant_id: Any) -> None:
+        self._repo = repo
+        self._tenant = tenant_id
+
+    async def source_handle(self, canonical_id: str, category: str) -> str:
+        asset = await self._repo.find_asset_by_canonical_id(self._tenant, canonical_id)
+        if asset is None:
+            raise NotFound(
+                f"no MAR asset for canonical_id {canonical_id!r} (category {category!r})")
+        plant_id = parse_canonical_id(canonical_id).plant_id
+        conn = await self._active_connection(plant_id, category)
+        if conn is None:
+            raise NotFound(
+                f"no active {category!r} connection for plant {plant_id!r} "
+                f"(canonical_id {canonical_id!r})")
+        handle = await self._repo.source_handle_for(
+            self._tenant, asset.asset_id, conn.connection_id)
+        if handle is None:
+            raise NotFound(
+                f"no {category!r} source handle (alias) for {canonical_id!r} "
+                f"on connection {conn.connection_id!r}")
+        return handle
+
+    async def _active_connection(self, plant_id: str, category: str) -> Any:
+        conns = await self._repo.list_connections(plant_id=plant_id, category=category)
+        for c in conns:
+            if getattr(c, "status", None) == "active":
+                return c
+        return None
+
+
+__all__ = ["AssetGateway", "CanonicalSlugAssetGateway", "MarAssetGateway", "StaticAssetGateway"]
