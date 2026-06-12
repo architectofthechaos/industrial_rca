@@ -60,8 +60,9 @@ class FixedCompletionTransport:
 class HashEmbeddingTransport:
     """Deterministic embeddings: each text -> a fixed-dim vector seeded from its SHA-256."""
 
-    def __init__(self, dim: int = 16) -> None:
-        self._dim = dim
+    def __init__(self, dim: int | None = None) -> None:
+        from rca_llm.embedding_config import embedding_dim
+        self._dim = dim if dim is not None else embedding_dim()
         self.call_count = 0
 
     async def embed(self, *, model: str, texts: list[str]) -> list[list[float]]:  # noqa: ARG002
