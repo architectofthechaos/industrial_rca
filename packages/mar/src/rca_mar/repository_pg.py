@@ -24,7 +24,8 @@ def _to_descriptor(a: Asset) -> AssetDescriptor:
     return AssetDescriptor(
         asset_id=a.asset_id, canonical_id=a.canonical_id, tenant_id=a.tenant_id,
         plant_id=a.plant_id,
-        iso14224_class=a.iso14224_class, iso14224_level=a.iso14224_level, tag=a.tag,
+        iso14224_class=a.iso14224_class, iso14224_class_kg=a.iso14224_class_kg,
+        iso14224_level=a.iso14224_level, tag=a.tag,
         service=a.service, criticality=a.criticality,  # type: ignore[arg-type]  # str col -> A/B/C/D Literal
         manufacturer=a.manufacturer,
         model=a.model, serial_number=a.serial_number, commissioned_at=a.commissioned_at,
