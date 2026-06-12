@@ -30,9 +30,17 @@ def temporal_namespace() -> str:
     return os.environ.get("TEMPORAL_NAMESPACE", "default")
 
 
+def mcp_host_url() -> str:
+    """Entity MCP host the live worker reaches over HTTP (D8/G10). Default targets the local
+    ``task probe:host`` (FastMCP serves Streamable HTTP at ``/mcp``). Pointing at a different
+    host — or a real source's host — is this env var only, no code change."""
+    return os.environ.get("MCP_HOST_URL", "http://127.0.0.1:8100/mcp")
+
+
 __all__ = [
     "TASK_QUEUE", "DEFAULT_TENANT_ID", "DEFAULT_PLANT_ID",
     "DEFAULT_GATHER_AUTO_ACCEPT_THRESHOLD", "MAX_REPLAN_CYCLES", "MAX_FIVE_WHYS_DEPTH",
     "MAX_CONCLUSION_REGENERATIONS",
     "task_queue", "gather_auto_accept_threshold", "temporal_host", "temporal_namespace",
+    "mcp_host_url",
 ]

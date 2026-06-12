@@ -118,11 +118,16 @@ class RcaAgent:
             correlation_id=ctx.correlation_id, probe_run_id=ctx.probe_run_id,
             budget=ctx.budget, replay_from_cache=ctx.replay_from_cache)
         structured = resp.structured or {}
-        if structured.get("needs_hitl") and structured.get("questions"):
-            questions = [HitlQuestion(
+        questions = []
+        for i, q in enumerate(structured.get("questions") or []):
+            text = _question_text(q)
+            if not text:
+                continue   # drop text-less items (the LLM occasionally emits malformed gaps)
+            questions.append(HitlQuestion(
                 question_id=det_uuid(ctx.probe_run_id, "rca", "gap", str(i)),
-                text=q["text"], question_type=q.get("question_type", "context"), required=False)
-                for i, q in enumerate(structured["questions"])]
+                text=text, question_type=_one_of(q.get("question_type"), _QTYPES, "context"),
+                required=False))
+        if structured.get("needs_hitl") and questions:
             turn = HitlTurn(turn_id=det_uuid(ctx.probe_run_id, "rca", "gaps"),
                             questions=questions,
                             context_for_engineer="A few gaps to fill before the 5 Whys.",
@@ -164,7 +169,8 @@ class RcaAgent:
             steps.append({
                 "rank": len(steps) + 1, "why_question": s.get("why_question", "why?"),
                 "answer": s.get("answer", "unknown"),
-                "answer_source": s.get("answer_source", "agent_inference"),
+                "answer_source": _one_of(s.get("answer_source"), _ANSWER_SOURCES,
+                                         "agent_inference"),
                 "supporting_evidence": s.get("supporting_evidence", [])})
             if s.get("is_root_cause") and len(steps) >= _MIN_FIVE_WHYS:
                 break
@@ -244,9 +250,10 @@ class RcaAgent:
         primary = self._hyp(ranked.get("primary_hypothesis", {}), rank=1)
         alts = [self._hyp(h, rank=i + 2)
                 for i, h in enumerate(ranked.get("alternative_hypotheses", []))]
-        fishbone = [FishboneCategory(category=c["category"],
-                                     causes=[self._cause(x) for x in c.get("causes", [])])
-                    for c in state["fishbone"]]
+        fishbone = [FishboneCategory(
+            category=_one_of(c.get("category") or c.get("name"), _FISHBONE_CATS, "Method"),
+            causes=[self._cause(x) for x in c.get("causes", [])])
+            for c in state["fishbone"]]
         five_whys = FiveWhysChain(
             chain_id=det_uuid(ctx.probe_run_id, "fivewhys"),
             initial_problem=_initial_problem(pkg),
@@ -255,13 +262,16 @@ class RcaAgent:
                                  else "undetermined"),
             confidence=primary.confidence)
         actions = [RecommendedAction(
-            action=a["action"], rationale=a.get("rationale", ""), priority=a.get("priority",
-            "monitor"), estimated_effort=a.get("estimated_effort"), target=a.get("target"),
+            action=_act, rationale=a.get("rationale", ""),
+            priority=_one_of(a.get("priority"), _PRIORITIES, "monitor"),
+            estimated_effort=a.get("estimated_effort"), target=a.get("target"),
             preconditions=a.get("preconditions", []))
-            for a in ranked.get("recommended_actions", [])]
-        odrs = [OpenDataRequest(request=o["request"], rationale=o.get("rationale", ""),
+            for a in ranked.get("recommended_actions", [])
+            if (_act := (a.get("action") or a.get("recommendation") or a.get("description")))]
+        odrs = [OpenDataRequest(request=_req, rationale=o.get("rationale", ""),
                                 target=o.get("target"))
-                for o in ranked.get("open_data_requests", [])]
+                for o in ranked.get("open_data_requests", [])
+                if (_req := (o.get("request") or o.get("question") or o.get("description")))]
         return RcaConclusion(
             conclusion_id=det_uuid(ctx.probe_run_id, "conclusion", str(regen)),
             probe_run_id=ctx.probe_run_id, evidence_package_id=pkg.evidence_package_id,
@@ -300,9 +310,10 @@ class RcaAgent:
 
     @staticmethod
     def _cause(x: dict) -> FishboneCause:
-        return FishboneCause(cause=x["cause"], sub_causes=x.get("sub_causes", []),
-                             supporting_evidence=[_cite(e) for e in x.get(
-                                 "supporting_evidence", [])])
+        return FishboneCause(
+            cause=x.get("cause") or x.get("name") or x.get("description") or "unspecified",
+            sub_causes=x.get("sub_causes", []),
+            supporting_evidence=[_cite(e) for e in x.get("supporting_evidence", [])])
 
     @staticmethod
     def _fw_step(s: dict) -> FiveWhysStep:
@@ -328,6 +339,39 @@ def _merge(leg: AgentLegResult, usage: TokenUsage, llm_ids: list) -> AgentLegRes
 def _cite(e: dict) -> EvidenceCitation:
     return EvidenceCitation(section=e.get("section", "tag"), item_id=e.get("item_id", ""),
                             relevance=e.get("relevance"))
+
+
+def _question_text(q: dict) -> str | None:
+    """The human-readable text of an LLM gap question, tolerant of key variants.
+
+    The live LLM does not always honor the prompt's declared ``text`` key (Anthropic JSON
+    schema is best-effort) — it has emitted ``question``/``gap``/``description``. Returns the
+    first non-empty variant, else None so the caller can drop a text-less item (G25)."""
+    for key in ("text", "question", "gap", "description"):
+        val = q.get(key)
+        if val:
+            return str(val)
+    return None
+
+
+# Literal/enum vocabularies the LLM populates (mirror the rca_contracts Literals). The live LLM
+# emits out-of-vocab values (e.g. question_type="maintenance_history", category="machine"), which
+# crash Pydantic Literal validation — ``_one_of`` canonicalizes case-insensitively or defaults (G25).
+_QTYPES = ("clarification", "context", "scope", "approval")
+_ANSWER_SOURCES = ("evidence_package", "kg", "engineer_hitl", "agent_inference")
+_PRIORITIES = ("immediate", "next_shutdown", "monitor")
+_FISHBONE_CATS = ("Manpower", "Method", "Machine", "Material", "Measurement", "Environment")
+
+
+def _one_of(value: object, allowed: tuple[str, ...], default: str) -> Any:
+    # -> Any: the result is a runtime-validated member of `allowed`, assigned to the various
+    # Literal enum fields (question_type/category/priority/answer_source) which mypy can't narrow
+    # a str to. Membership is guaranteed here, so Any is the honest, cast-free annotation.
+    if isinstance(value, str):
+        for a in allowed:
+            if value.strip().lower() == a.lower():
+                return a
+    return default
 
 
 def _initial_problem(pkg: EvidencePackage) -> str:

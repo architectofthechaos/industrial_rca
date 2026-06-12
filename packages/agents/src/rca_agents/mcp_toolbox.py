@@ -9,6 +9,7 @@ vs HTTP choice is purely how the ``Client`` is constructed at startup.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 from statistics import mean as _mean
 from typing import Any
@@ -87,9 +88,19 @@ class McpToolBox:
         return resp.provenance.connection_id if resp.provenance else None
 
     async def search_assets(self, keywords: str, plant_id: str | None) -> list[dict]:
-        resp = await self._call("asset.search", {"tag_pattern": _pattern(keywords),
-                                                  "canonical_id_pattern": _pattern(keywords)})
-        rows = resp.data or []
+        # Planning passes the full prompt as `keywords`. Search by each equipment-tag-like token
+        # (e.g. "P-101A"); MAR's asset.search ANDs its filters and is case-sensitive, so use
+        # tag_pattern ONLY. If no token matches, fall back to the plant's asset list so the LLM
+        # always has a shortlist to resolve from (G21).
+        rows: list[dict] = []
+        for tok in _tag_tokens(keywords):
+            resp = await self._call("asset.search", {"tag_pattern": f"%{tok}%"})
+            rows = resp.data or []
+            if rows:
+                break
+        if not rows:
+            resp = await self._call("asset.search", {})
+            rows = resp.data or []
         return [descriptor_to_summary(d, keywords=keywords) for d in rows]
 
     async def asset_summary(self, canonical_id: str) -> dict | None:
@@ -121,9 +132,13 @@ class McpToolBox:
         out: list[dict] = []
         conn = self._conn_id(listed)
         for t in (listed.data or []):
+            # interpolated (evenly-spaced, downsampled) — not raw "stored" points: the toolbox
+            # only needs summary stats, and a multi-day "stored" window returns ~550k points/tag
+            # (~25s), blowing the gather-leg timeout. Interpolated is ~10k points/tag (~0.6s) (G24).
             hist = await self._call("tag.get_history", {
                 "canonical_id": canonical_id, "tag_name": t["tag_name"],
-                "start": start.isoformat(), "end": reference_time.isoformat(), "mode": "stored"})
+                "start": start.isoformat(), "end": reference_time.isoformat(),
+                "mode": "interpolated"})
             self._require_ok(hist, "tag.get_history")
             # last-response connection_id used (single historian per asset assumption)
             conn = self._conn_id(hist) or conn
@@ -188,9 +203,15 @@ class McpToolBox:
         return resp.error is None
 
 
-def _pattern(keywords: str) -> str | None:
-    tok = next((w for w in (keywords or "").split() if "-" in w or w.isupper()), None)
-    return f"%{tok}%" if tok else None
+_TAG_RE = re.compile(r"[A-Za-z]{1,5}-?\d{2,}[A-Za-z]?")
+
+
+def _tag_tokens(keywords: str) -> list[str]:
+    """Equipment-tag-like tokens from free text (e.g. "P-101A"), uppercased to match MAR tags.
+
+    Requires digits, so plain uppercase words ("RCA") are not mistaken for asset tags.
+    """
+    return [m.group(0).upper() for m in _TAG_RE.finditer(keywords or "")]
 
 
 def _qa(resp: ToolResponse[Any], canonical_id: str) -> datetime:

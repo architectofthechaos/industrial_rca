@@ -24,7 +24,7 @@ BB1_FAILURE_MODE_CODES = [
 EXPECTED_LABEL_COUNTS = {
     "EquipmentClass": 3,
     "FailureMode": 19,
-    "FailureMechanism": 41,
+    "FailureMechanism": 42,   # +1: failure-mechanism:other generic fallback (Sprint 5 G26)
     "MaintenanceActivity": 12,
     "Subunit": 5,
     "Component": 42,
@@ -57,7 +57,7 @@ def test_iso_seed_node_counts_per_label_and_total() -> None:
         ids = _merged_node_ids(ISO_TEXT, label)
         assert len(ids) == expected, f"{label}: expected {expected}, found {len(ids)}"
         all_ids |= ids
-    assert len(all_ids) == sum(EXPECTED_LABEL_COUNTS.values()) == 122
+    assert len(all_ids) == sum(EXPECTED_LABEL_COUNTS.values()) == 123  # +1: G26 mechanism:other
     distinct_id_values = set(re.findall(r'id: "([^"]+)"', ISO_TEXT))
     assert len(distinct_id_values) >= 120  # sprint plan budget for ontology nodes
 

@@ -45,16 +45,19 @@ async def run() -> None:
 
     from rca_kg.assets import Neo4jAssetGraph
 
-    from .config import temporal_host, temporal_namespace
+    from .config import mcp_host_url, temporal_host, temporal_namespace
     from .deps import build_probe_deps
-    from .host import build_entity_host, router_from_connections
     from .mcp_toolbox import McpToolBox
 
     use_pg = os.environ.get("PROBE_USE_POSTGRES", "1") == "1"
+    # close-phase persist_conclusion_to_kg writes the KG directly (not over MCP), so the worker
+    # holds its own Neo4jAssetGraph independent of the MCP host.
     asset_graph = Neo4jAssetGraph()
-    host = await build_entity_host(router=await router_from_connections(),
-                                   asset_graph=asset_graph)
-    async with Client(host) as mcp_client:
+    # D8/G10: reach the entity tools over HTTP against the separately-run MCP host
+    # (`task probe:host`). The host (rca_agents.host) builds MAR+KG(+asset_graph)+connectors with
+    # the registry router. In-process construction stays the hermetic-test path (build_probe_deps
+    # with Client(host_obj)); McpToolBox is unchanged — only how the Client is built differs.
+    async with Client(mcp_host_url()) as mcp_client:
         deps = build_probe_deps(toolbox=McpToolBox(mcp_client), asset_graph=asset_graph,
                                 wo_client=mcp_client, use_postgres=use_pg)
         client = await TemporalClient.connect(temporal_host(), namespace=temporal_namespace(),

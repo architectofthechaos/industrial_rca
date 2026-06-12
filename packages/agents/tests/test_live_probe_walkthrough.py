@@ -135,12 +135,14 @@ async def test_full_walkthrough_with_mid_analysis_hitl():
     await client.start_workflow(
         ProbeWorkflow.run,
         ProbeWorkflowInput(prompt="RCA on P-101A seal leak", plant_id="refinery-gc",
-                           requested_by="eng@deepiq.com", probe_run_id=rid),
+                           requested_by="eng@deepiq.com", probe_run_id=rid,
+                           reference_time=REF),   # anchor at the seal-leak scenario window
         id=workflow_id_for(rid), task_queue="rca-probes")
     handle = client.get_workflow_handle(workflow_id_for(rid))
 
     seen = await _drive(handle)
-    result = await handle.result()   # ProbeResult (pydantic_data_converter decodes it)
+    # Untyped handle + pydantic converter -> result decodes to a plain dict (ProbeResult fields).
+    result = await handle.result()
 
     # The plan-approval gate fired (planning ran on live data).
     assert "plan_approval" in seen, f"expected a plan-approval HITL turn; saw {sorted(seen)}"
@@ -150,8 +152,8 @@ async def test_full_walkthrough_with_mid_analysis_hitl():
         f"expected a mid-5-Whys human-knowledge HITL turn (D2); saw {sorted(seen)}")
 
     # Terminal success + a ranked conclusion.
-    assert result.status == "completed", f"probe did not complete: status={result.status!r}"
-    assert result.conclusion_id is not None
+    assert result["status"] == "completed", f"probe did not complete: status={result['status']!r}"
+    assert result["conclusion_id"] is not None
 
     # Read the persisted conclusion through the Postgres conclusion repo to confirm a ranked
     # primary hypothesis. The worker persists it via deps.conclusions.put in the rca leg.
@@ -188,11 +190,11 @@ async def test_budget_exhaustion_yields_partial():
     assert not any("budget" in sig.lower() or "extend" in sig.lower() for sig in seen), (
         f"an 'extend budget?' HITL turn fired, violating D4; saw {sorted(seen)}")
 
-    # D4: handle.result() RETURNS a ProbeResult with the budget_exceeded status (the workflow
-    # now catches TokenBudgetExceeded and finalizes-partial rather than failing the workflow).
+    # D4: handle.result() RETURNS (doesn't raise) with the budget_exceeded status (the workflow
+    # now catches TokenBudgetExceeded and finalizes-partial). Untyped handle -> dict.
     result = await handle.result()
-    assert result.status == "budget_exceeded", (
-        f"expected result.status budget_exceeded; got {result.status!r}")
+    assert result["status"] == "budget_exceeded", (
+        f"expected result status budget_exceeded; got {result['status']!r}")
 
     # The run finalizes at the exact terminal status from ProbeRunStatus.BUDGET_EXCEEDED.
     from rca_contracts import ProbeRunStatus

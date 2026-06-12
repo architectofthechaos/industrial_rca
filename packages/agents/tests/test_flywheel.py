@@ -69,7 +69,8 @@ async def _run_probe_to_completion(client, *, prompt: str) -> str:
     await client.start_workflow(
         ProbeWorkflow.run,
         ProbeWorkflowInput(prompt=prompt, plant_id="refinery-gc",
-                           requested_by="eng@deepiq.com", probe_run_id=rid),
+                           requested_by="eng@deepiq.com", probe_run_id=rid,
+                           reference_time=REF),   # anchor at the seal-leak scenario window
         id=workflow_id_for(rid), task_queue="rca-probes")
     handle = client.get_workflow_handle(workflow_id_for(rid))
 
@@ -83,8 +84,9 @@ async def _run_probe_to_completion(client, *, prompt: str) -> str:
             answered.add(turn["turn_id"])
             await handle.signal(ProbeWorkflow.hitl_response, _answer_for(turn))
         await asyncio.sleep(0.5)
-    result = await handle.result()
-    assert result.status == "completed", f"probe #1 did not complete: status={result.status!r}"
+    result = await handle.result()   # untyped handle -> dict
+    assert result["status"] == "completed", (
+        f"probe #1 did not complete: status={result['status']!r}")
     return rid
 
 

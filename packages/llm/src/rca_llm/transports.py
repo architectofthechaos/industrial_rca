@@ -20,6 +20,11 @@ class AnthropicTransport:
         resolver = secret_resolver or EnvSecretResolver()
         api_key = resolver.resolve(api_key_ref)
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        self._bad_request = anthropic.BadRequestError
+        # Models that deprecate the `temperature` param (e.g. claude-opus-4-8 returns a 400
+        # "`temperature` is deprecated for this model."). Learned on first rejection, then the
+        # param is omitted for that model — keeps it for models that still accept it (haiku-4-5).
+        self._no_temperature: set[str] = set()
 
     async def complete(
         self, *, model: str, rendered_prompt: str, temperature: float, max_tokens: int,
@@ -28,9 +33,19 @@ class AnthropicTransport:
         system = ("Respond with a single JSON object matching the requested schema; no prose."
                   if output_schema is not None
                   else "You are a precise reliability-engineering assistant.")
-        message = await self._client.messages.create(
-            model=model, max_tokens=max_tokens, temperature=temperature, system=system,
-            messages=[{"role": "user", "content": rendered_prompt}])
+        kwargs: dict = dict(model=model, max_tokens=max_tokens, system=system,
+                            messages=[{"role": "user", "content": rendered_prompt}])
+        if model not in self._no_temperature:
+            kwargs["temperature"] = temperature
+        try:
+            message = await self._client.messages.create(**kwargs)
+        except self._bad_request as exc:
+            if model in self._no_temperature or "temperature" not in str(exc).lower():
+                raise
+            # This model deprecates `temperature` — remember it and retry without (G20).
+            self._no_temperature.add(model)
+            kwargs.pop("temperature", None)
+            message = await self._client.messages.create(**kwargs)
         content = "".join(
             block.text for block in message.content if getattr(block, "type", "") == "text")
         return CompletionResult(
@@ -49,7 +64,9 @@ class VoyageEmbeddingTransport:
 
     async def embed(self, *, model: str, texts: list[str]) -> list[list[float]]:
         result = await self._client.embed(texts, model=model)
-        return list(result.embeddings)
+        # voyageai types embeddings as list[list[float]] | list[list[int]]; text embeddings are
+        # always floats — coerce so the declared return type holds.
+        return [[float(v) for v in row] for row in result.embeddings]
 
 
 __all__ = ["AnthropicTransport", "VoyageEmbeddingTransport"]
