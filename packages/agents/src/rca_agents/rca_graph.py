@@ -125,7 +125,7 @@ class RcaAgent:
                 continue   # drop text-less items (the LLM occasionally emits malformed gaps)
             questions.append(HitlQuestion(
                 question_id=det_uuid(ctx.probe_run_id, "rca", "gap", str(i)),
-                text=text, question_type=q.get("question_type") or q.get("topic") or "context",
+                text=text, question_type=_one_of(q.get("question_type"), _QTYPES, "context"),
                 required=False))
         if structured.get("needs_hitl") and questions:
             turn = HitlTurn(turn_id=det_uuid(ctx.probe_run_id, "rca", "gaps"),
@@ -169,7 +169,8 @@ class RcaAgent:
             steps.append({
                 "rank": len(steps) + 1, "why_question": s.get("why_question", "why?"),
                 "answer": s.get("answer", "unknown"),
-                "answer_source": s.get("answer_source", "agent_inference"),
+                "answer_source": _one_of(s.get("answer_source"), _ANSWER_SOURCES,
+                                         "agent_inference"),
                 "supporting_evidence": s.get("supporting_evidence", [])})
             if s.get("is_root_cause") and len(steps) >= _MIN_FIVE_WHYS:
                 break
@@ -249,9 +250,10 @@ class RcaAgent:
         primary = self._hyp(ranked.get("primary_hypothesis", {}), rank=1)
         alts = [self._hyp(h, rank=i + 2)
                 for i, h in enumerate(ranked.get("alternative_hypotheses", []))]
-        fishbone = [FishboneCategory(category=c.get("category") or c.get("name") or "Other",
-                                     causes=[self._cause(x) for x in c.get("causes", [])])
-                    for c in state["fishbone"]]
+        fishbone = [FishboneCategory(
+            category=_one_of(c.get("category") or c.get("name"), _FISHBONE_CATS, "Method"),
+            causes=[self._cause(x) for x in c.get("causes", [])])
+            for c in state["fishbone"]]
         five_whys = FiveWhysChain(
             chain_id=det_uuid(ctx.probe_run_id, "fivewhys"),
             initial_problem=_initial_problem(pkg),
@@ -260,7 +262,8 @@ class RcaAgent:
                                  else "undetermined"),
             confidence=primary.confidence)
         actions = [RecommendedAction(
-            action=_act, rationale=a.get("rationale", ""), priority=a.get("priority", "monitor"),
+            action=_act, rationale=a.get("rationale", ""),
+            priority=_one_of(a.get("priority"), _PRIORITIES, "monitor"),
             estimated_effort=a.get("estimated_effort"), target=a.get("target"),
             preconditions=a.get("preconditions", []))
             for a in ranked.get("recommended_actions", [])
@@ -349,6 +352,23 @@ def _question_text(q: dict) -> str | None:
         if val:
             return str(val)
     return None
+
+
+# Literal/enum vocabularies the LLM populates (mirror the rca_contracts Literals). The live LLM
+# emits out-of-vocab values (e.g. question_type="maintenance_history", category="machine"), which
+# crash Pydantic Literal validation — ``_one_of`` canonicalizes case-insensitively or defaults (G25).
+_QTYPES = ("clarification", "context", "scope", "approval")
+_ANSWER_SOURCES = ("evidence_package", "kg", "engineer_hitl", "agent_inference")
+_PRIORITIES = ("immediate", "next_shutdown", "monitor")
+_FISHBONE_CATS = ("Manpower", "Method", "Machine", "Material", "Measurement", "Environment")
+
+
+def _one_of(value: object, allowed: tuple[str, ...], default: str) -> str:
+    if isinstance(value, str):
+        for a in allowed:
+            if value.strip().lower() == a.lower():
+                return a
+    return default
 
 
 def _initial_problem(pkg: EvidencePackage) -> str:

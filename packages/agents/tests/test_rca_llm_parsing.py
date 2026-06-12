@@ -7,7 +7,21 @@ leg (the scripted hermetic LLM always produced the declared ``{text, question_ty
 """
 from __future__ import annotations
 
-from rca_agents.rca_graph import _question_text
+from rca_agents.rca_graph import _one_of, _question_text
+
+
+def test_one_of_canonicalizes_case_insensitively():
+    # the live LLM emits e.g. category "machine" / "MACHINE" for the 6M Literal
+    cats = ("Manpower", "Method", "Machine", "Material", "Measurement", "Environment")
+    assert _one_of("machine", cats, "Method") == "Machine"
+    assert _one_of("MACHINE", cats, "Method") == "Machine"
+
+
+def test_one_of_defaults_on_out_of_vocab_or_missing():
+    qtypes = ("clarification", "context", "scope", "approval")
+    assert _one_of("maintenance_history", qtypes, "context") == "context"   # the live crash
+    assert _one_of(None, qtypes, "context") == "context"
+    assert _one_of(123, qtypes, "context") == "context"
 
 
 def test_question_text_accepts_question_key():
