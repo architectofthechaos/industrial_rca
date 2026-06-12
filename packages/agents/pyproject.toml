@@ -6,6 +6,9 @@ requires-python = ">=3.12"
 dependencies = [
     "rca-contracts",
     "rca-connector-sdk",
+    "rca-connector-documents",
+    "rca-connector-maximo",
+    "rca-connector-pi",
     "rca-llm",
     "rca-mar",
     "rca-kg",
@@ -30,6 +33,9 @@ packages = ["src/rca_agents"]
 [tool.uv.sources]
 rca-contracts = { workspace = true }
 rca-connector-sdk = { workspace = true }
+rca-connector-documents = { workspace = true }
+rca-connector-maximo = { workspace = true }
+rca-connector-pi = { workspace = true }
 rca-llm = { workspace = true }
 rca-mar = { workspace = true }
 rca-kg = { workspace = true }
