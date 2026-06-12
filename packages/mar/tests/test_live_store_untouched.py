@@ -20,9 +20,11 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from rca_mar.config import DEFAULT_URL as _LIVE_DEFAULT
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
-LIVE_DATABASE_URL = os.environ.get(
-    "LIVE_DATABASE_URL", "postgresql+asyncpg://rca:rca@127.0.0.1:5432/rca_mar")
+# Live store is the config DEFAULT (NOT database_url(), which conftest redirects to test_rca_mar).
+LIVE_DATABASE_URL = os.environ.get("LIVE_DATABASE_URL", _LIVE_DEFAULT)
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RCA_DB") != "1", reason="stack-gated: set RCA_DB=1 to run against the stack")

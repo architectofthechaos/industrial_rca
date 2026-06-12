@@ -20,6 +20,7 @@ import asyncio
 import os
 import socket
 import subprocess
+from collections.abc import Generator
 from pathlib import Path
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
@@ -84,7 +85,7 @@ async def _drop_test_db() -> None:
 
 
 @pytest.fixture(scope="session")
-def mar_test_db() -> str:
+def mar_test_db() -> Generator[str, None, None]:
     """Create a fresh throwaway ``test_rca_mar`` for the session; drop it on teardown.
 
     Admin (DROP/CREATE) ops run via ``asyncio.run`` on their own loop — outside any test loop,
@@ -103,7 +104,7 @@ def mar_test_db() -> str:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _redirect_database_url(mar_test_db: str):
+def _redirect_database_url(mar_test_db: str) -> Generator[None, None, None]:
     """Point the whole mar test package at the throwaway DB for the session.
 
     ``os.environ`` save/restore (not pytest ``monkeypatch``, which is function-scoped) so the
