@@ -21,6 +21,7 @@ from typing import Any
 from uuid import uuid4
 
 from rca_connections_api import ActivationListener
+from rca_llm.embedding_config import embedding_model
 
 from .doc_source import McpDocSource
 from .embedding_pipeline import DocumentEmbeddingPipeline
@@ -78,8 +79,6 @@ def build_document_embedding_listener(
         raise ValueError(
             "embed_transport is required (e.g. VoyageEmbeddingTransport live / "
             "HashEmbeddingTransport in tests); it is not defaulted to keep the wiring explicit")
-    from rca_llm.embedding_config import embedding_model
-
     pipeline = DocumentEmbeddingPipeline(
         doc_source=McpDocSource(doc_client),
         embed=embed_transport,

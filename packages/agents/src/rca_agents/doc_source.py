@@ -51,9 +51,14 @@ class McpDocSource:
             raise RuntimeError(f"{tool} failed: {resp.error}")
         return resp
 
+    # Embed the WHOLE corpus per type: document.list_by_type defaults top=20, which would
+    # silently cap enumeration (and the embedding set) on a plant with >20 docs of a type.
+    _LIST_TOP = 10_000
+
     async def list_by_type(self, doc_type: str, plant_id: str) -> list[dict]:
-        resp = await self._call("document.list_by_type",
-                                {"doc_type": doc_type, "plant_id": plant_id})
+        resp = await self._call(
+            "document.list_by_type",
+            {"doc_type": doc_type, "plant_id": plant_id, "top": self._LIST_TOP})
         self._require_ok(resp, "document.list_by_type")
         return [_ref_to_dict(dict(r)) for r in (resp.data or [])]
 

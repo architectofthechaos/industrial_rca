@@ -3,7 +3,7 @@ name: summarize_document
 version: v1
 model: claude-haiku-4-5-20251001
 temperature: 0.0
-max_tokens: 120
+max_tokens: 200
 variables:
   - document_text
 ---
