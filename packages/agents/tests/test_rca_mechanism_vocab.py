@@ -7,8 +7,14 @@ Also covers that gather enriches the EvidencePackage's iso14224_context with the
 mechanism-carrying modes from failure_modes_for_class (not the bare context modes).
 """
 import json
+from uuid import uuid4
 
-from rca_contracts import EvidencePackage
+from rca_contracts import (
+    EvidencePackage,
+    FailureModeCandidate,
+    InvestigationPlan,
+    PlanStep,
+)
 
 from rca_agents.gather_graph import build_graph
 from rca_agents.toolbox import FakeToolBox
@@ -64,8 +70,6 @@ async def test_gather_enriches_evidence_package_with_mechanisms():
     (no mechanisms), while failure_modes_for_class returns the rich fixture modes.
     Before the gather edit, the Evidence Package gets bare modes; after it, rich ones.
     """
-    from uuid import uuid4
-    from rca_contracts import FailureModeCandidate, InvestigationPlan, PlanStep
 
     class _BareModeContext(FakeToolBox):
         """Simulate McpToolBox: get_asset_context returns modes WITHOUT mechanisms."""

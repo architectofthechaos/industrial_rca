@@ -139,7 +139,10 @@ class GatherAgent:
                 "cannot materialize the KG asset layer")
         investigated = [c.iso14224_code for c in plan.candidate_failure_modes[:3]]
 
-        # D14: fetch mechanism-carrying modes from the KG; fall back to context modes if empty
+        # D14: source applicable modes from kg.list_failure_modes_for_class — a SEPARATE call
+        # because kg.get_asset_context (above) omits the CAUSED_BY mechanisms. An empty result is
+        # expected only at KG cold-start; we degrade to the bare context modes (mechanism vocab
+        # absent from this package) rather than fail the gather leg.
         modes_with_mech = await ctx.toolbox.failure_modes_for_class(equipment_class)
         applicable = modes_with_mech or context.get("applicable_failure_modes", [])
 
