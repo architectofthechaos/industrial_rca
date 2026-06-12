@@ -139,13 +139,17 @@ class GatherAgent:
                 "cannot materialize the KG asset layer")
         investigated = [c.iso14224_code for c in plan.candidate_failure_modes[:3]]
 
+        # D14: fetch mechanism-carrying modes from the KG; fall back to context modes if empty
+        modes_with_mech = await ctx.toolbox.failure_modes_for_class(equipment_class)
+        applicable = modes_with_mech or context.get("applicable_failure_modes", [])
+
         # materialize_kg — lazy Asset upsert + per-mode CAN_EXHIBIT links
         asset_meta = context.get("asset") or {}
         await ctx.toolbox.upsert_asset(
             canonical_id=cid, name=asset_meta.get("name", cid.split(":")[-1].upper()),
             iso14224_class=equipment_class, confidence=0.95, method="register",
             reference_time=ctx.reference_time)
-        valid_codes = {m["code"] for m in context.get("applicable_failure_modes", [])}
+        valid_codes = {m["code"] for m in applicable}
         for code in investigated:
             if code in valid_codes:
                 await ctx.toolbox.link_failure_mode(canonical_id=cid, failure_mode_code=code)
@@ -164,7 +168,7 @@ class GatherAgent:
             location=self._location(cid, asset_meta),
             iso14224_context=ISO14224Context(
                 equipment_class=equipment_class,
-                applicable_failure_modes=context.get("applicable_failure_modes", [])),
+                applicable_failure_modes=applicable),
             tag_evidence=TagEvidence(tags=raw["tags"], anomalies=anomalies,
                                      anomaly_method=anomaly_method),
             work_order_evidence=WorkOrderEvidence(work_orders=raw["work_orders"]),
