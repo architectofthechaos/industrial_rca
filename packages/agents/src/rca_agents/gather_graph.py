@@ -160,7 +160,10 @@ class GatherAgent:
         anomalies, anomaly_method, a_usage, a_ids = await self._detect_anomalies(ctx, raw["tags"])
         usage = usage.merged_with(a_usage)
         llm_ids += a_ids
-        scored_docs, score_method = self._score_documents(raw["documents"], plan)
+        doc_conn = next((p.connection_id for p in provenance
+                         if p.tool_name == "document.search_for_asset"), None)
+        scored_docs, score_method = await self._score_documents(
+            raw["documents"], plan, ctx, doc_conn)
 
         pkg = EvidencePackage(
             evidence_package_id=det_uuid(ctx.probe_run_id, "evidence"),
@@ -219,7 +222,7 @@ class GatherAgent:
         return out
 
     @staticmethod
-    def _score_documents(
+    def _score_documents_keyword(
         docs: list[dict], plan: InvestigationPlan,
     ) -> tuple[list[ScoredDocument], Literal["embedding_v1", "keyword_overlap"]]:
         terms = set()
@@ -236,6 +239,36 @@ class GatherAgent:
                                          excerpt=d.get("excerpt")))
         scored.sort(key=lambda s: s.score, reverse=True)
         return scored, "keyword_overlap"
+
+    async def _score_documents(
+        self, docs: list[dict], plan: InvestigationPlan, ctx: Any, connection_id: str | None,
+    ) -> tuple[list[ScoredDocument], Literal["embedding_v1", "keyword_overlap"]]:
+        if connection_id and docs:
+            try:
+                query = (
+                    " ".join(c.name for c in plan.candidate_failure_modes)
+                    or "failure mechanism"
+                )
+                qvec = (await ctx.llm.embed(query, correlation_id=ctx.correlation_id))[0]
+                hits = await ctx.toolbox.search_documents_by_vector(
+                    connection_id=connection_id, query_embedding=qvec,
+                    doc_types=["datasheet", "rca_report"], top=max(len(docs), 5))
+                if hits:
+                    by_id = {d["document_id"]: d for d in docs}
+                    scored = [
+                        ScoredDocument(
+                            document_id=h["document_id"],
+                            title=by_id.get(h["document_id"], {}).get("title", ""),
+                            doc_type=h.get("doc_type") or by_id.get(
+                                h["document_id"], {}).get("doc_type"),
+                            score=round(float(h["score"]), 4),
+                            excerpt=by_id.get(h["document_id"], {}).get("excerpt"))
+                        for h in hits
+                    ]
+                    return scored, "embedding_v1"
+            except Exception:  # noqa: BLE001 — semantic path is best-effort; fall back to keyword
+                pass
+        return self._score_documents_keyword(docs, plan)
 
     @staticmethod
     def _asset_summary(cid: str, meta: dict, equipment_class: str) -> AssetSummary:

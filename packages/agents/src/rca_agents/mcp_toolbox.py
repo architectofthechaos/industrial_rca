@@ -208,6 +208,18 @@ class McpToolBox:
         self._require_ok(resp, "kg.list_failure_modes_for_class")
         return [dict(e) for e in (resp.data or [])]
 
+    async def search_documents_by_vector(self, *, connection_id: str,
+                                         query_embedding: list[float],
+                                         doc_types: list[str] | None = None,
+                                         top: int = 5) -> list[dict]:
+        req: dict[str, Any] = {"connection_id": connection_id,
+                                "query_embedding": query_embedding, "top": top}
+        if doc_types is not None:
+            req["doc_types"] = doc_types
+        resp = await self._call("document_embedding.search", req)
+        self._require_ok(resp, "document_embedding.search")
+        return [dict(h) for h in (resp.data or [])]
+
 
 _TAG_RE = re.compile(r"[A-Za-z]{1,5}-?\d{2,}[A-Za-z]?")
 

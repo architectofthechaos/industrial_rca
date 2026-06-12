@@ -114,6 +114,7 @@ _PROTOCOL_METHODS = {
     "tag_history",
     "work_orders_for_asset",
     "documents_for_asset",
+    "search_documents_by_vector",
     "operator_logs_for_asset",
     "upsert_asset",
     "link_failure_mode",

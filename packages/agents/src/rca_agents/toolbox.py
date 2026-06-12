@@ -46,6 +46,10 @@ class ToolBox(Protocol):
         self, canonical_id: str) -> tuple[list[dict], ProvenanceEntry]: ...
     async def documents_for_asset(
         self, canonical_id: str, query: str) -> tuple[list[dict], ProvenanceEntry]: ...
+    async def search_documents_by_vector(self, *, connection_id: str,
+                                         query_embedding: list[float],
+                                         doc_types: list[str] | None = None,
+                                         top: int = 5) -> list[dict]: ...
     async def operator_logs_for_asset(
         self, canonical_id: str, *, reference_time: datetime,
         lookback_hours: int) -> tuple[list[dict], ProvenanceEntry]: ...
@@ -183,6 +187,31 @@ class FakeToolBox:
         prov = _prov("document", canonical_id, "document.search_for_asset",
                      self.fixture["connection_ids"]["document"], len(docs), self._now())
         return docs, prov
+
+    async def search_documents_by_vector(self, *, connection_id: str,
+                                         query_embedding: list[float],
+                                         doc_types: list[str] | None = None,
+                                         top: int = 5) -> list[dict]:
+        # Demonstrate the SEMANTIC WIN: the prior RCA (rca_report) ranks above the datasheet
+        # because its embedding is closest to the failure-mode query — the opposite of what
+        # keyword overlap produces (the datasheet matches more failure-mode keyword terms).
+        docs = self.fixture["documents"]
+        by_id = {d["document_id"]: d for d in docs}
+        hits = [
+            {"document_id": "RCA-2025-014", "doc_type": "rca_report",
+             "description": "prior seal-leak RCA", "score": 0.95},
+            {"document_id": "P-101A-DS", "doc_type": "datasheet",
+             "description": "pump datasheet", "score": 0.55},
+        ]
+        # Filter to only hits whose document_id actually exists in the fixture and match doc_types
+        result = []
+        for h in hits:
+            if h["document_id"] not in by_id:
+                continue
+            if doc_types and h["doc_type"] not in doc_types:
+                continue
+            result.append(h)
+        return result[:top]
 
     async def operator_logs_for_asset(
         self, canonical_id: str, *, reference_time: datetime,
