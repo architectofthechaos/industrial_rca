@@ -8,6 +8,8 @@ backstop (catching the repo's ``DuplicateActiveConnection``).
 """
 from __future__ import annotations
 
+import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -32,7 +34,11 @@ from .schemas import (
 )
 from .state_machine import InvalidTransition, assert_patch_transition
 
+logger = logging.getLogger(__name__)
+
 ProbeLookup = "dict[str, Probe] | None"
+
+ActivationListener = Callable[[ConnectionRow], Awaitable[None]]
 
 
 def _utcnow() -> datetime:
@@ -44,6 +50,7 @@ def build_router(
     repo: AssetRepository,
     secret_resolver: SecretResolver,
     probes: dict[str, Probe] | None = None,
+    activation_listener: ActivationListener | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/connections", tags=["connections"])
 
@@ -225,6 +232,12 @@ def build_router(
                 status_code=409,
                 detail={"error": "category_conflict",
                         "conflicting_connection_id": exc.existing_connection_id}) from exc
+        if activation_listener is not None:
+            try:
+                await activation_listener(activated)
+            except Exception as exc:  # noqa: BLE001 — a listener failure must not fail activation
+                logger.warning(
+                    "activation_listener failed for %s: %s", connection_id, exc)
         return ConnectionResponse.from_row(activated)
 
     return router
