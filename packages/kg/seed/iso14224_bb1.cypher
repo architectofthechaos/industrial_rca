@@ -4,8 +4,8 @@
 
 // ---- EquipmentClass taxonomy ------------------------------------------------
 MERGE (n:EquipmentClass {id: "equipment-class:rotating-equipment"}) SET n.name = "Rotating equipment", n.description = "Equipment category: machines with rotating parts.";
-MERGE (n:EquipmentClass {id: "equipment-class:pump"}) SET n.code = "PU", n.name = "Pump", n.description = "Equipment class pumps (ISO 14224 A.2.2).";
-MERGE (n:EquipmentClass {id: "equipment-class:bb1"}) SET n.code = "BB1", n.name = "Centrifugal pump", n.description = "Centrifugal pump equipment type (API 610 BB1 between-bearings style).";
+MERGE (n:EquipmentClass {id: "equipment-class:pump"}) SET n.code = "PU", n.name = "Pump", n.description = "Equipment class pumps (ISO 14224 A.2.2).", n.dotted = "pump";
+MERGE (n:EquipmentClass {id: "equipment-class:bb1"}) SET n.code = "BB1", n.name = "Centrifugal pump", n.description = "Centrifugal pump equipment type (API 610 BB1 between-bearings style).", n.dotted = "pump.centrifugal";
 MATCH (a:EquipmentClass {id: "equipment-class:rotating-equipment"})
 UNWIND ["equipment-class:pump"] AS dst_id
 MATCH (b:EquipmentClass {id: dst_id})
