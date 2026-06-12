@@ -210,6 +210,23 @@ tasks:
     cmds:
       - cd packages/agents && uv run uvicorn rca_agents.api:create_app --factory --port 8400
 
+  stack:up:
+    desc: Bring up the FULL live stack — infra (pgvector+Neo4j+Temporal) + migrations + KG seed + simulators + refplant connections. Then run `task probe:worker`.
+    cmds:
+      - task: infra:up
+      - task: mar:migrate
+      - task: kg:migrate
+      - task: kg:seed
+      - cd rca_simulator && task up
+      - uv run python scripts/seed_refplant_assets.py
+      - uv run python scripts/seed_refplant_connections.py
+      - 'echo "stack up. Now run: task probe:worker"'
+
+  probe:host:
+    desc: (optional) Serve the entity MCP host over HTTP for an out-of-process run (Sprint 5 path)
+    cmds:
+      - uv run python -m rca_agents.host
+
   test:agents:
     desc: Run the Sprint 3 LLM + agents hermetic tests (no DB, no sim, no cluster)
     cmds:

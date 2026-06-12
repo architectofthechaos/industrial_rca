@@ -36,4 +36,41 @@ async def make_worker(client, deps: ProbeActivityDeps):
                   activities=ALL_ACTIVITIES, workflow_runner=_WORKFLOW_RUNNER)
 
 
-__all__ = ["make_worker", "default_agent_factories", "ProbeWorkflow", "_WORKFLOW_RUNNER"]
+async def run() -> None:
+    """Live entrypoint: build the in-process entity host + client, assemble deps, serve."""
+    import os
+    from fastmcp import Client
+    from temporalio.client import Client as TemporalClient
+    from temporalio.contrib.pydantic import pydantic_data_converter
+
+    from rca_kg.assets import Neo4jAssetGraph
+
+    from .config import temporal_host, temporal_namespace
+    from .deps import build_probe_deps
+    from .host import build_entity_host, router_from_connections
+    from .mcp_toolbox import McpToolBox
+
+    use_pg = os.environ.get("PROBE_USE_POSTGRES", "1") == "1"
+    asset_graph = Neo4jAssetGraph()
+    host = await build_entity_host(router=await router_from_connections(),
+                                   asset_graph=asset_graph)
+    async with Client(host) as mcp_client:
+        deps = build_probe_deps(toolbox=McpToolBox(mcp_client), asset_graph=asset_graph,
+                                wo_client=mcp_client, use_postgres=use_pg)
+        client = await TemporalClient.connect(temporal_host(), namespace=temporal_namespace(),
+                                              data_converter=pydantic_data_converter)
+        worker = await make_worker(client, deps)
+        await worker.run()
+
+
+def main() -> None:
+    import asyncio
+    asyncio.run(run())
+
+
+if __name__ == "__main__":
+    main()
+
+
+__all__ = ["make_worker", "default_agent_factories", "ProbeWorkflow", "_WORKFLOW_RUNNER",
+           "run", "main"]

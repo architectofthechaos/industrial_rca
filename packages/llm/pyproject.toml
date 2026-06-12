@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "rca-contracts",
     "rca-connector-sdk",
+    "rca-mar",
     "pydantic>=2",
     "pyyaml>=6",
     "jsonschema>=4",
@@ -26,3 +27,4 @@ packages = ["src/rca_llm"]
 [tool.uv.sources]
 rca-contracts = { workspace = true }
 rca-connector-sdk = { workspace = true }
+rca-mar = { workspace = true }

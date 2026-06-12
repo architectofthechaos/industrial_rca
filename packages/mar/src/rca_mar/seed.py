@@ -20,6 +20,7 @@ import yaml
 from rca_contracts import AssetDescriptor
 from rca_kg.slugs import slug as _slug
 
+from .class_binding import kg_class_for
 from .repository import AliasRow, AssetRepository, ConnectionRow
 
 # Register criticality words -> canonical A/B/C/D (SPEC-011 design decision).
@@ -94,7 +95,8 @@ def _descriptor(tenant: UUID, *, asset_id, canonical_id, plant_id, tag, iso_clas
                 serial_number=None) -> AssetDescriptor:
     return AssetDescriptor(
         asset_id=asset_id, canonical_id=canonical_id, tenant_id=tenant, plant_id=plant_id,
-        iso14224_class=iso_class, iso14224_level=iso_level, tag=tag, service=service,
+        iso14224_class=iso_class, iso14224_class_kg=kg_class_for(iso_class),
+        iso14224_level=iso_level, tag=tag, service=service,
         criticality=criticality, manufacturer=manufacturer, model=model,
         serial_number=serial_number, commissioned_at=None, decommissioned_at=None,
         location_description=None, description=None)

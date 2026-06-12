@@ -130,7 +130,13 @@ class GatherAgent:
         usage = TokenUsage()
         llm_ids: list = []
         context = raw.get("context") or await ctx.toolbox.get_asset_context(cid)
-        equipment_class = context.get("iso14224_class") or "equipment-class:bb1"
+        equipment_class = context.get("iso14224_class")
+        if not equipment_class:
+            # D1/G5: the KG-native class must resolve via MAR->KG context; no silent fallback.
+            # An unresolved class is a hard error (it would otherwise orphan the asset on upsert).
+            raise ValueError(
+                f"no resolved KG equipment class for {cid!r} in asset context; "
+                "cannot materialize the KG asset layer")
         investigated = [c.iso14224_code for c in plan.candidate_failure_modes[:3]]
 
         # materialize_kg — lazy Asset upsert + per-mode CAN_EXHIBIT links

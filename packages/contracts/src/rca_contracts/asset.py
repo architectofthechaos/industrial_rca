@@ -26,6 +26,7 @@ class AssetDescriptor(StrictModel):
     tenant_id: TenantID
     plant_id: str
     iso14224_class: str
+    iso14224_class_kg: str | None = None
     iso14224_level: int
     tag: str
     service: str | None

@@ -18,6 +18,7 @@ from rca_kg.assets import (
     InMemoryAssetGraph,
     InvalidFailureModePair,
 )
+from rca_kg.class_map import UnknownEquipmentClass
 from rca_kg.queries import InMemoryGateway
 from rca_kg.server import UpsertAssetResult, make_kg_mcp
 
@@ -240,3 +241,28 @@ async def test_kg_get_asset_context_tool():
         assert ctx.data.kg_warm is False
         assert ctx.data.asset is not None
         assert {m["code"] for m in ctx.data.applicable_failure_modes} == {"ELP", "VIB"}
+
+
+async def test_upsert_unknown_class_hard_fails():
+    g = InMemoryAssetGraph()  # empty graph: no EquipmentClass nodes
+    with pytest.raises(UnknownEquipmentClass):
+        await g.upsert_asset(
+            canonical_id="asset:p:u:x", name="X", iso14224_class="equipment-class:nope",
+            iso14224_class_confidence=0.9, iso14224_class_method="register",
+            probed_at=datetime(2026, 3, 30, tzinfo=timezone.utc))
+
+
+async def test_neo4j_upsert_unknown_class_hard_fails(monkeypatch):
+    from rca_kg.assets import Neo4jAssetGraph
+    g = Neo4jAssetGraph.__new__(Neo4jAssetGraph)  # bypass __init__/driver
+
+    async def _fake_read(query, **params):
+        return []  # no EquipmentClass node found
+
+    monkeypatch.setattr(g, "_read", _fake_read)
+    with pytest.raises(UnknownEquipmentClass):
+        await g.upsert_asset(
+            canonical_id="asset:p:u:x", name="X",
+            iso14224_class="equipment-class:nope",
+            iso14224_class_confidence=0.9, iso14224_class_method="register",
+            probed_at=datetime(2026, 3, 30, tzinfo=timezone.utc))

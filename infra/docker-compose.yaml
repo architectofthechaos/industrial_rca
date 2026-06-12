@@ -1,7 +1,7 @@
 # Product-side infrastructure (separate from rca_simulator's compose).
 services:
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: rca
       POSTGRES_PASSWORD: rca

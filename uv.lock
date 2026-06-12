@@ -2631,8 +2631,12 @@ name = "rca-agents"
 version = "0.0.1"
 source = { editable = "packages/agents" }
 dependencies = [
+    { name = "fastmcp" },
     { name = "httpx" },
     { name = "pydantic" },
+    { name = "rca-connector-documents" },
+    { name = "rca-connector-maximo" },
+    { name = "rca-connector-pi" },
     { name = "rca-connector-sdk" },
     { name = "rca-contracts" },
     { name = "rca-kg" },
@@ -2649,10 +2653,14 @@ graph = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastmcp", specifier = ">=2" },
     { name = "httpx" },
     { name = "langchain-core", marker = "extra == 'graph'", specifier = ">=0.3" },
     { name = "langgraph", marker = "extra == 'graph'", specifier = ">=0.2" },
     { name = "pydantic", specifier = ">=2" },
+    { name = "rca-connector-documents", editable = "packages/connectors/documents" },
+    { name = "rca-connector-maximo", editable = "packages/connectors/maximo" },
+    { name = "rca-connector-pi", editable = "packages/connectors/pi" },
     { name = "rca-connector-sdk", editable = "packages/connector_sdk" },
     { name = "rca-contracts", editable = "packages/contracts" },
     { name = "rca-kg", editable = "packages/kg" },
@@ -2920,6 +2928,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rca-connector-sdk" },
     { name = "rca-contracts" },
+    { name = "rca-mar" },
 ]
 
 [package.optional-dependencies]
@@ -2936,6 +2945,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6" },
     { name = "rca-connector-sdk", editable = "packages/connector_sdk" },
     { name = "rca-contracts", editable = "packages/contracts" },
+    { name = "rca-mar", editable = "packages/mar" },
     { name = "voyageai", marker = "extra == 'live'", specifier = ">=0.3" },
 ]
 provides-extras = ["live"]

@@ -77,6 +77,7 @@ class Asset(Base):
     tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, index=True)
     plant_id: Mapped[str] = mapped_column(Text, nullable=False)
     iso14224_class: Mapped[str] = mapped_column(String, nullable=False)
+    iso14224_class_kg: Mapped[str | None] = mapped_column(String, nullable=True)
     iso14224_level: Mapped[int] = mapped_column(Integer, nullable=False)
     tag: Mapped[str] = mapped_column(String, nullable=False)
     service: Mapped[str | None] = mapped_column(String, nullable=True)
