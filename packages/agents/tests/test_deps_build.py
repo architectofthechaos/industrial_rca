@@ -23,3 +23,21 @@ async def test_build_probe_deps_assembles_nine_fields(monkeypatch):
                   "evidence", "conclusions", "agent_factories"]:
             assert getattr(deps, f) is not None
         assert set(deps.agent_factories) == {"planning", "gather", "rca"}
+
+
+@pytest.mark.asyncio
+async def test_build_probe_deps_postgres_path_imports(monkeypatch):
+    # use_postgres=True must import repos_pg + audit_pg cleanly and assemble (engines are lazy,
+    # so this does NOT require a live DB connection at construction).
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-dummy-key")
+    monkeypatch.setenv("VOYAGE_API_KEY", "test-dummy-key")
+    host = await build_entity_host(router=_static_dev_router(), mar_repo=InMemoryRepository(),
+                                   asset_graph=InMemoryAssetGraph())
+    async with Client(host) as client:
+        deps = build_probe_deps(toolbox=McpToolBox(client), asset_graph=InMemoryAssetGraph(),
+                                wo_client=client, use_postgres=True)
+        # all 4 repos are the Pg variants now
+        assert type(deps.runs).__name__ == "PgProbeRunsRepo"
+        assert type(deps.memory).__name__ == "PgProbeMemoryRepo"
+        assert type(deps.evidence).__name__ == "PgEvidencePackageRepo"
+        assert type(deps.conclusions).__name__ == "PgRcaConclusionRepo"

@@ -19,9 +19,9 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from rca_contracts import ProbeRunStatus
+from rca_contracts import EvidencePackage, ProbeRunStatus, RcaConclusion
 from rca_mar.config import make_engine, make_session_factory
-from rca_mar.models import ProbeMemory, ProbeRun
+from rca_mar.models import EvidencePackageRow, ProbeMemory, ProbeRun, RcaConclusionRow
 
 
 # ------------------------------------------------------------------- probe_runs
@@ -123,4 +123,84 @@ class PgProbeMemoryRepo:
             row.last_updated_at = func.now()
 
 
-__all__ = ["PgProbeRunsRepo", "PgProbeMemoryRepo"]
+# ------------------------------------------------------------------- evidence_packages
+class PgEvidencePackageRepo:
+    def __init__(self, session_factory: Any = None) -> None:
+        self._sf = session_factory or make_session_factory(make_engine())
+
+    async def put(self, package: EvidencePackage) -> None:
+        payload = package.model_dump(mode="json")
+        values = {
+            "evidence_package_id": package.evidence_package_id,
+            "probe_run_id": package.probe_run_id,
+            "canonical_id": package.canonical_id,
+            "investigated_failure_modes": package.investigated_failure_modes,
+            "schema_version": package.schema_version,
+            "payload": payload,
+            "assembled_at": package.assembled_at,
+        }
+        async with self._sf() as s, s.begin():
+            stmt = pg_insert(EvidencePackageRow).values(**values).on_conflict_do_update(
+                index_elements=[EvidencePackageRow.evidence_package_id],
+                set_={"payload": payload})
+            await s.execute(stmt)
+
+    async def get(self, evidence_package_id: UUID) -> EvidencePackage | None:
+        async with self._sf() as s:
+            row = await s.get(EvidencePackageRow, evidence_package_id)
+            return EvidencePackage.model_validate(row.payload) if row is not None else None
+
+    async def get_for_probe(self, probe_run_id: UUID) -> EvidencePackage | None:
+        async with self._sf() as s:
+            row = (await s.execute(
+                select(EvidencePackageRow)
+                .where(EvidencePackageRow.probe_run_id == probe_run_id)
+                .order_by(EvidencePackageRow.assembled_at.desc()))).scalars().first()
+            return EvidencePackage.model_validate(row.payload) if row is not None else None
+
+
+# ------------------------------------------------------------------- rca_conclusions
+class PgRcaConclusionRepo:
+    def __init__(self, session_factory: Any = None) -> None:
+        self._sf = session_factory or make_session_factory(make_engine())
+
+    async def put(self, conclusion: RcaConclusion, *, status: str) -> None:
+        payload = conclusion.model_dump(mode="json")
+        values = {
+            "conclusion_id": conclusion.conclusion_id,
+            "probe_run_id": conclusion.probe_run_id,
+            "evidence_package_id": conclusion.evidence_package_id,
+            "canonical_id": conclusion.canonical_id,
+            "status": status,
+            "agent_name": conclusion.agent_name,
+            "agent_version": conclusion.agent_version,
+            "schema_version": conclusion.schema_version,
+            "payload": payload,
+            "llm_call_ids": None,
+            "generated_at": conclusion.generated_at,
+            "finalized_at": conclusion.finalized_at,
+        }
+        async with self._sf() as s, s.begin():
+            stmt = pg_insert(RcaConclusionRow).values(**values).on_conflict_do_update(
+                index_elements=[RcaConclusionRow.conclusion_id],
+                set_={"payload": payload, "status": status,
+                      "finalized_at": conclusion.finalized_at})
+            await s.execute(stmt)
+
+    async def get(self, conclusion_id: UUID) -> RcaConclusion | None:
+        async with self._sf() as s:
+            row = await s.get(RcaConclusionRow, conclusion_id)
+            return RcaConclusion.model_validate(row.payload) if row is not None else None
+
+    async def get_for_probe(self, probe_run_id: UUID) -> RcaConclusion | None:
+        async with self._sf() as s:
+            row = (await s.execute(
+                select(RcaConclusionRow)
+                .where(RcaConclusionRow.probe_run_id == probe_run_id)
+                .order_by(RcaConclusionRow.generated_at.desc()))).scalars().first()
+            return RcaConclusion.model_validate(row.payload) if row is not None else None
+
+
+__all__ = [
+    "PgProbeRunsRepo", "PgProbeMemoryRepo", "PgEvidencePackageRepo", "PgRcaConclusionRepo",
+]
