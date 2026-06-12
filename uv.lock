@@ -2928,6 +2928,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rca-connector-sdk" },
     { name = "rca-contracts" },
+    { name = "rca-mar" },
 ]
 
 [package.optional-dependencies]
@@ -2944,6 +2945,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6" },
     { name = "rca-connector-sdk", editable = "packages/connector_sdk" },
     { name = "rca-contracts", editable = "packages/contracts" },
+    { name = "rca-mar", editable = "packages/mar" },
     { name = "voyageai", marker = "extra == 'live'", specifier = ">=0.3" },
 ]
 provides-extras = ["live"]
