@@ -37,6 +37,7 @@ MERGE (n:FailureMode {id: "failure-mode:ser"}) SET n.code = "SER", n.name = "Min
 MERGE (n:FailureMode {id: "failure-mode:unk"}) SET n.code = "UNK", n.name = "Unknown", n.description = "Too little information to define a failure mode.", n.iso14224_ref = "B.3";
 
 // ---- FailureMechanism (ISO 14224 Table B.4) ---------------------------------
+MERGE (n:FailureMechanism {id: "failure-mechanism:other"}) SET n.name = "Other", n.description = "Other/unspecified failure mechanism (ISO 14224 B.4 'Other'); generic fallback when a mechanism cannot be resolved to a specific ontology node.", n.iso14224_ref = "B.4";
 MERGE (n:FailureMechanism {id: "failure-mechanism:mechanical-failure"}) SET n.name = "Mechanical failure", n.description = "General mechanical failure of moving parts.", n.iso14224_ref = "B.4";
 MERGE (n:FailureMechanism {id: "failure-mechanism:leakage"}) SET n.name = "Leakage", n.description = "Loss of fluid past a sealing surface or joint.", n.iso14224_ref = "B.4";
 MERGE (n:FailureMechanism {id: "failure-mechanism:vibration"}) SET n.name = "Vibration", n.description = "Excessive dynamic motion damaging parts over time.", n.iso14224_ref = "B.4";

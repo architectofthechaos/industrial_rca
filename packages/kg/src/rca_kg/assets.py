@@ -29,6 +29,12 @@ from rca_kg import config
 from rca_kg.class_map import UnknownEquipmentClass
 
 
+# Generic fallback when the agent's chosen mechanism isn't a known ontology node (G26). The
+# rank-hypotheses prompt isn't given the mechanism vocabulary, so the live LLM sometimes emits an
+# out-of-ontology mechanism; coerce to this seeded "Other" node rather than failing the close phase.
+_FALLBACK_MECHANISM = "failure-mechanism:other"
+
+
 def _native_props(props: dict[str, Any]) -> dict[str, Any]:
     """Coerce Neo4j temporal property values (``neo4j.time.DateTime``/``Date``/``Time``) to
     their python natives so Pydantic ``datetime`` fields validate (G23). Non-temporal values
@@ -187,8 +193,7 @@ class InMemoryAssetGraph:
             raise InvalidFailureModePair(
                 f"failure mode code {iso14224_failure_mode!r} not in ontology")
         if self._node("FailureMechanism", iso14224_mechanism) is None:
-            raise InvalidFailureModePair(
-                f"failure mechanism {iso14224_mechanism!r} not in ontology")
+            iso14224_mechanism = _FALLBACK_MECHANISM   # coerce unknown mechanism (G26)
         key = ("HistoricalFailureEvent", event_id)
         created = key not in self.nodes
         if created:
@@ -365,7 +370,9 @@ class Neo4jAssetGraph:
         if not check or not check[0]["has_fm"]:
             raise InvalidFailureModePair(f"failure mode {iso14224_failure_mode!r} not in ontology")
         if not check[0]["has_mech"]:
-            raise InvalidFailureModePair(f"mechanism {iso14224_mechanism!r} not in ontology")
+            # mechanism vocabulary isn't given to the LLM -> coerce an unknown id to the seeded
+            # "Other" node rather than failing the close phase (G26); still MATCHes, never forks.
+            iso14224_mechanism = _FALLBACK_MECHANISM
         rows = await self._write(
             "MERGE (fe:HistoricalFailureEvent {id: $event_id})\n"
             "ON CREATE SET fe._created = true\n"
