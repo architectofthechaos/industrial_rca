@@ -36,6 +36,7 @@ from rca_connector_sdk import (
     CanonicalSlugAssetGateway,
     ConnectionInfo,
     ConnectionRouter,
+    MarAssetGateway,
     RegistryConnectionRouter,
     StaticConnectionRouter,
 )
@@ -121,6 +122,7 @@ async def build_entity_host(*, router: ConnectionRouter | None = None,
     gateway = CanonicalSlugAssetGateway()
     if mar_repo is None:
         mar_repo = PostgresRepository(make_session_factory(make_engine()))
+    cmms_gateway = MarAssetGateway(repo=mar_repo, tenant_id=TENANT_ID)   # D13/WI1 — MAR-backed CMMS handle
     if asset_graph is None:
         asset_graph = Neo4jAssetGraph()
     host = FastMCP("entity-mcp-host")
@@ -129,7 +131,7 @@ async def build_entity_host(*, router: ConnectionRouter | None = None,
     host.mount(make_tag_mcp(router=router, assets=gateway, default_base_url=HISTORIAN_SIM_URL))
     host.mount(make_operator_log_mcp(router=router, assets=gateway,
                                      default_base_url=HISTORIAN_SIM_URL))
-    host.mount(make_work_order_mcp(router=router, assets=gateway, default_base_url=CMMS_SIM_URL))
+    host.mount(make_work_order_mcp(router=router, assets=cmms_gateway, default_base_url=CMMS_SIM_URL))
     host.mount(make_document_mcp(router=router, assets=gateway, default_base_url=DOCUMENT_SIM_URL))
     _register_health(host)
     return host
