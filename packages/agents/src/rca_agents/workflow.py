@@ -12,6 +12,7 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from rca_contracts import HitlResponse, ProbeRunStatus, TokenUsage
@@ -35,6 +36,22 @@ with workflow.unsafe.imports_passed_through():
     )
     from rca_contracts import TokenBudget
 
+def _is_budget_exceeded(err: BaseException | None) -> bool:
+    """True if a budget breach surfaced. Temporal converts the plain ``TokenBudgetExceeded``
+    raised inside the activity into an ``ApplicationError`` whose ``.type`` is the exception
+    class name (``"TokenBudgetExceeded"``); it reaches the workflow as the ``.cause`` of an
+    ``ActivityError``. We walk up to ~3 ``.cause`` levels and match an ApplicationError whose
+    ``.type`` endswith ``"TokenBudgetExceeded"`` (robust to nesting / fully-qualified names)."""
+    cur: BaseException | None = err
+    for _ in range(4):
+        if cur is None:
+            return False
+        if isinstance(cur, ApplicationError) and (cur.type or "").endswith("TokenBudgetExceeded"):
+            return True
+        cur = getattr(cur, "cause", None)
+    return False
+
+
 _LEG_TIMEOUT = timedelta(minutes=5)
 _LEG_RETRY = RetryPolicy(maximum_attempts=1)        # legs aren't auto-retried (avoid double LLM)
 _CLOSE_TIMEOUT = timedelta(minutes=2)
@@ -50,6 +67,9 @@ class ProbeWorkflow:
         self._status: str = ProbeRunStatus.RUNNING.value
         self._phase: str = "init"
         self._cum_usage = TokenUsage()
+        # Partial-progress trackers so a mid-probe budget breach can surface what's known (D4).
+        self._canonical_id: str | None = None
+        self._conclusion_id: str | None = None
 
     @workflow.signal
     async def hitl_response(self, response: HitlResponse) -> None:
@@ -85,40 +105,60 @@ class ProbeWorkflow:
                 started_at=started_at),
             start_to_close_timeout=_CLOSE_TIMEOUT, retry_policy=_CLOSE_RETRY)
 
-        # ---- PLANNING ----
-        self._status = self._phase = ProbeRunStatus.PLANNING.value
-        planning = await self._run_agent("planning", None)
-        if planning.final_output and planning.final_output.get("status") == "planning_aborted":
-            return await self._finalize(probe_run_id, plant_id, None,
-                                        ProbeRunStatus.PLANNING_ABORTED.value, started_at)
-        plan = planning.final_output["plan"]
-        canonical_id = plan["asset_canonical_id"]
-        lookback = next((s["parameters"].get("lookback_hours") for s in plan["steps"]
-                         if s["step_type"] == "tag_history" and s["parameters"].get(
-                             "lookback_hours")), 168)
+        # init_probe_run is intentionally OUTSIDE the try: if init itself fails that's a real
+        # failure, not a budget breach to finalize-partial. Everything from planning onward (where
+        # agent legs call the LLM under a budget) is guarded so a mid-probe TokenBudgetExceeded
+        # auto-finalizes-partial at terminal status budget_exceeded instead of crashing the probe.
+        try:
+            # ---- PLANNING ----
+            self._status = self._phase = ProbeRunStatus.PLANNING.value
+            planning = await self._run_agent("planning", None)
+            if planning.final_output and planning.final_output.get(
+                    "status") == "planning_aborted":
+                return await self._finalize(probe_run_id, plant_id, None,
+                                            ProbeRunStatus.PLANNING_ABORTED.value, started_at)
+            plan = planning.final_output["plan"]
+            canonical_id = plan["asset_canonical_id"]
+            self._canonical_id = canonical_id
+            lookback = next((s["parameters"].get("lookback_hours") for s in plan["steps"]
+                             if s["step_type"] == "tag_history" and s["parameters"].get(
+                                 "lookback_hours")), 168)
 
-        # ---- GATHER ----
-        self._status = self._phase = ProbeRunStatus.GATHERING.value
-        gather = await self._run_agent("gather", {"agent": "gather", "plan": plan,
-                                                  "lookback_hours": lookback})
-        evidence_package = gather.final_output["evidence_package"]
+            # ---- GATHER ----
+            self._status = self._phase = ProbeRunStatus.GATHERING.value
+            gather = await self._run_agent("gather", {"agent": "gather", "plan": plan,
+                                                      "lookback_hours": lookback})
+            evidence_package = gather.final_output["evidence_package"]
 
-        # ---- RCA ----
-        self._status = self._phase = ProbeRunStatus.ANALYZING.value
-        rca = await self._run_agent("rca", {"agent": "rca",
-                                            "evidence_package": evidence_package})
-        conclusion = rca.final_output["conclusion"]
-        approval = conclusion.get("engineer_approval_status")
-        actions_approved = bool(rca.final_output.get("actions_approved"))
+            # ---- RCA ----
+            self._status = self._phase = ProbeRunStatus.ANALYZING.value
+            rca = await self._run_agent("rca", {"agent": "rca",
+                                                "evidence_package": evidence_package})
+            conclusion = rca.final_output["conclusion"]
+            self._conclusion_id = conclusion.get("conclusion_id")
+            approval = conclusion.get("engineer_approval_status")
+            actions_approved = bool(rca.final_output.get("actions_approved"))
 
-        # ---- CLOSE (WI6) ----
-        if approval in ("approved", "approved_with_edits"):
-            return await self._close(probe_run_id, plant_id, canonical_id, conclusion,
-                                     actions_approved, reference_time, inp.requested_by,
-                                     started_at)
-        return await self._finalize(probe_run_id, plant_id, canonical_id,
-                                    ProbeRunStatus.CONCLUSION_REJECTED.value, started_at,
-                                    conclusion_id=conclusion.get("conclusion_id"))
+            # ---- CLOSE (WI6) ----
+            if approval in ("approved", "approved_with_edits"):
+                return await self._close(probe_run_id, plant_id, canonical_id, conclusion,
+                                         actions_approved, reference_time, inp.requested_by,
+                                         started_at)
+            return await self._finalize(probe_run_id, plant_id, canonical_id,
+                                        ProbeRunStatus.CONCLUSION_REJECTED.value, started_at,
+                                        conclusion_id=conclusion.get("conclusion_id"))
+        except ActivityError as err:
+            # D4: TokenBudgetExceeded mid-probe -> auto-finalize-partial, terminal status
+            # budget_exceeded, surface the partial result. No "extend budget?" HITL turn.
+            if _is_budget_exceeded(err):
+                workflow.logger.warning(
+                    f"token budget exceeded in phase={self._phase!r}; "
+                    f"finalizing partial (budget_exceeded)")
+                return await self._finalize(
+                    probe_run_id, plant_id, self._canonical_id,
+                    ProbeRunStatus.BUDGET_EXCEEDED.value, started_at,
+                    conclusion_id=self._conclusion_id)
+            raise
 
     # ---- leg loop (the HITL bridge) -------------------------------------------
     async def _run_agent(self, agent_name: str, seed_state: dict | None):

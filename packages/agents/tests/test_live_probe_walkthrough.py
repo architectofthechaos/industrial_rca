@@ -188,6 +188,12 @@ async def test_budget_exhaustion_yields_partial():
     assert not any("budget" in sig.lower() or "extend" in sig.lower() for sig in seen), (
         f"an 'extend budget?' HITL turn fired, violating D4; saw {sorted(seen)}")
 
+    # D4: handle.result() RETURNS a ProbeResult with the budget_exceeded status (the workflow
+    # now catches TokenBudgetExceeded and finalizes-partial rather than failing the workflow).
+    result = await handle.result()
+    assert result.status == "budget_exceeded", (
+        f"expected result.status budget_exceeded; got {result.status!r}")
+
     # The run finalizes at the exact terminal status from ProbeRunStatus.BUDGET_EXCEEDED.
     from rca_contracts import ProbeRunStatus
     assert ProbeRunStatus.BUDGET_EXCEEDED.value == "budget_exceeded"
