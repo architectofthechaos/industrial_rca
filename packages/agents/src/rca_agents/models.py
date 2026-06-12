@@ -13,8 +13,11 @@ class ProbeWorkflowInput(BaseModel):
     reference_time: datetime | None = None     # frozen to workflow start when omitted (G10)
     requested_by: str
     probe_run_id: str | None = None            # API mints it so it can 202-return it (G10/G11)
-    input_tokens_limit: int = 50000
-    output_tokens_limit: int = 10000
+    # Defaults sized for a full real-LLM probe (Sprint 5 G27): a live Opus run re-sends the
+    # evidence package across planning+gather+fishbone+gaps+~7 five-whys+rank (~85k input observed),
+    # which blew the old hermetic-sized 50k/10k budget and tripped budget_exceeded mid-probe.
+    input_tokens_limit: int = 400000
+    output_tokens_limit: int = 50000
 
 
 class ProbeResult(BaseModel):
