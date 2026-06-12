@@ -119,10 +119,12 @@ async def build_entity_host(*, router: ConnectionRouter | None = None,
     """
     if router is None:
         router = await router_from_connections()
-    gateway = CanonicalSlugAssetGateway()
+    gateway = CanonicalSlugAssetGateway()   # slug rule covers the historian tag; no vendor handle
     if mar_repo is None:
         mar_repo = PostgresRepository(make_session_factory(make_engine()))
-    cmms_gateway = MarAssetGateway(repo=mar_repo, tenant_id=TENANT_ID)   # D13/WI1 — MAR-backed CMMS handle
+    # CMMS only: the Maximo location is NOT slug-derivable (slug gateway's source_handle raises),
+    # so resolve it from the MAR alias register. Other mounts keep the slug gateway (D13/WI1).
+    cmms_gateway = MarAssetGateway(repo=mar_repo, tenant_id=TENANT_ID)
     if asset_graph is None:
         asset_graph = Neo4jAssetGraph()
     host = FastMCP("entity-mcp-host")
