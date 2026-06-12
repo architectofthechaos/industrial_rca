@@ -363,7 +363,10 @@ _PRIORITIES = ("immediate", "next_shutdown", "monitor")
 _FISHBONE_CATS = ("Manpower", "Method", "Machine", "Material", "Measurement", "Environment")
 
 
-def _one_of(value: object, allowed: tuple[str, ...], default: str) -> str:
+def _one_of(value: object, allowed: tuple[str, ...], default: str) -> Any:
+    # -> Any: the result is a runtime-validated member of `allowed`, assigned to the various
+    # Literal enum fields (question_type/category/priority/answer_source) which mypy can't narrow
+    # a str to. Membership is guaranteed here, so Any is the honest, cast-free annotation.
     if isinstance(value, str):
         for a in allowed:
             if value.strip().lower() == a.lower():

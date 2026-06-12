@@ -64,7 +64,9 @@ class VoyageEmbeddingTransport:
 
     async def embed(self, *, model: str, texts: list[str]) -> list[list[float]]:
         result = await self._client.embed(texts, model=model)
-        return list(result.embeddings)
+        # voyageai types embeddings as list[list[float]] | list[list[int]]; text embeddings are
+        # always floats — coerce so the declared return type holds.
+        return [[float(v) for v in row] for row in result.embeddings]
 
 
 __all__ = ["AnthropicTransport", "VoyageEmbeddingTransport"]
