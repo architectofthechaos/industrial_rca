@@ -218,6 +218,7 @@ tasks:
       - task: kg:migrate
       - task: kg:seed
       - cd rca_simulator && task up
+      - uv run python scripts/seed_refplant_assets.py
       - uv run python scripts/seed_refplant_connections.py
       - 'echo "stack up. Now run: task probe:worker"'
 

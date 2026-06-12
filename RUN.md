@@ -45,8 +45,17 @@ task stack:up
 `stack:up` runs, in order: `infra:up` (Postgres + Neo4j + Temporal + Temporal UI, `--wait` for
 health) → `mar:migrate` → `kg:migrate` → `kg:seed` (ISO 14224 BB1 ontology + refplant hierarchy)
 → `cd rca_simulator && task up` (the four sims: PI :8001, Maximo :8002, SAP :8003, SharePoint
-:8004) → `python scripts/seed_refplant_connections.py` (registers the four refplant connections
-as `active`). It finishes by printing `stack up. Now run: task probe:worker`.
+:8004) → `python scripts/seed_refplant_assets.py` (loads the MAR `assets` table from the
+authoritative register so `asset.search`/`asset.get` can resolve P-101A) →
+`python scripts/seed_refplant_connections.py` (registers the four refplant connections as
+`active`, demoting any conflicting register-default actives so each category has exactly one
+active source). It finishes by printing `stack up. Now run: task probe:worker`.
+
+> Asset seed runs **before** the connection seed: seeding asset aliases also upserts the
+> register's default connections, two of which land `active` in the `cmms`/`historian` slots;
+> the connection seed then reconciles those to the probe's `maximo-main`/`pi-main`. Both scripts
+> are idempotent — re-running `stack:up` never errors. If you ever need to seed assets manually:
+> `uv run python scripts/seed_refplant_assets.py`.
 
 > First Temporal boot provisions its DBs in the shared Postgres; the healthcheck can take 20–40s.
 
