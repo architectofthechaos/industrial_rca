@@ -4,7 +4,12 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastmcp import Client
-from rca_contracts import AssetDescriptor, ResolveAssetOutput, ToolResponse
+from rca_contracts import (
+    AssetDescriptor,
+    DocumentEmbeddingHit,
+    ResolveAssetOutput,
+    ToolResponse,
+)
 
 from rca_mar.pattern_rules import PatternRule
 from rca_mar.repository import InMemoryRepository
@@ -155,10 +160,50 @@ async def test_search_by_canonical_id_pattern():
 
 
 async def test_exposed_tools_are_exactly_resolve_get_search():
-    # hierarchy moved to the KG (Sprint 2): MAR exposes no hierarchy tool anymore
+    # hierarchy moved to the KG (Sprint 2): MAR exposes no hierarchy tool anymore.
+    # Sprint 6 WI4 adds document_embedding.search (cosine doc retrieval for the gather leg).
     async with await _client() as c:
         tools = {t.name for t in await c.list_tools()}
-        assert tools == {"asset.resolve", "asset.get", "asset.search"}
+        assert tools == {"asset.resolve", "asset.get", "asset.search",
+                         "document_embedding.search"}
+
+
+def _vec(*nonzero):
+    """A 1024-dim vector with the given (index, value) pairs set (rest zero)."""
+    v = [0.0] * 1024
+    for i, val in nonzero:
+        v[i] = val
+    return v
+
+
+async def test_document_embedding_search_ranks_closest_first():
+    # Hermetic: seed the InMemoryRepository, then call the tool through a fastmcp Client and
+    # assert the doc nearest by cosine ranks first (mirrors how asset.search is exercised).
+    conn = "refinery-gc.document.sp-default"
+    repo = InMemoryRepository()
+    await repo.upsert_document_embedding(
+        content_hash="h1", model="voyage-3", document_id="RCA-2025-014", doc_type="rca_report",
+        description="seal leak prior RCA", embedding=_vec((0, 1.0)), connection_id=conn)
+    await repo.upsert_document_embedding(
+        content_hash="h2", model="voyage-3", document_id="P-101A-DS", doc_type="datasheet",
+        description="pump datasheet", embedding=_vec((1, 1.0)), connection_id=conn)
+    async with Client(make_mar_mcp(repo=repo, tenant_id=TENANT)) as c:
+        res = _parse(await c.call_tool(
+            "document_embedding.search",
+            {"request": {"connection_id": conn, "query_embedding": _vec((0, 0.99), (1, 0.01)),
+                         "top": 2, "doc_types": ["rca_report", "datasheet"]}}),
+            list[DocumentEmbeddingHit])
+        assert res.error is None
+        assert [h.document_id for h in res.data] == ["RCA-2025-014", "P-101A-DS"]
+        assert res.data[0].score > res.data[1].score
+        assert res.provenance.record_count == 2
+        # doc_types filter excludes non-matching rows
+        filtered = _parse(await c.call_tool(
+            "document_embedding.search",
+            {"request": {"connection_id": conn, "query_embedding": _vec((0, 1.0)),
+                         "doc_types": ["datasheet"]}}),
+            list[DocumentEmbeddingHit])
+        assert [h.document_id for h in filtered.data] == ["P-101A-DS"]
 
 
 async def test_make_mar_mcp_fails_fast_on_broken_default_registry(tmp_path, monkeypatch):
