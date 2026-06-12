@@ -3,7 +3,7 @@
 ``McpToolBox`` implements the ``ToolBox`` Protocol by driving the mounted entity MCP host
 through a transport-agnostic ``fastmcp.Client`` and adapting each tool's ``ToolResponse`` to
 the shape the agents read (see ``FakeToolBox`` for the reference shape). This module imports
-ONLY ``fastmcp`` + ``rca_contracts`` — never a connector/MAR/KG/simulator module (§8 invariant).
+ONLY ``rca_contracts`` — never a connector/MAR/KG/simulator module (§8 invariant).
 Source routing is endpoint/config-driven inside the host the client points at; the in-process
 vs HTTP choice is purely how the ``Client`` is constructed at startup.
 """
@@ -19,16 +19,11 @@ from rca_contracts import ProvenanceEntry, ToolResponse
 
 def severity_for(*, mean: float, mx: float) -> str:
     """Coarse stand-in severity from per-tag stats (real anomaly detection is the LLM's job
-    downstream; the toolbox only supplies stats + a hint).
-
-    Critical when the peak is both a clear relative excursion (>=1.5x mean) *and* an absolute
-    level worth alarming (>=6.5), or when the relative spike alone is severe (>=2x mean).
-    Elevated on any >=1.5x excursion; normal otherwise.
-    """
+    downstream; the toolbox only supplies stats + a hint). Unit-agnostic ratio rule."""
     if not mean:
         return "normal"
     ratio = mx / mean
-    if (ratio >= 1.5 and mx >= 6.5) or ratio >= 2.0:
+    if ratio >= 2.0:
         return "critical"
     if ratio >= 1.5:
         return "elevated"
@@ -60,7 +55,8 @@ def descriptor_to_summary(d: dict, *, keywords: str) -> dict:
     name = d.get("tag") or cid.split(":")[-1].upper()
     kw = (keywords or "").lower()
     exact = name.lower() in kw or cid.split(":")[-1] in kw
-    return {"canonical_id": cid, "name": name, "confidence": 0.95 if exact else 0.6}
+    # 0.5 = neutral middle; asset.search is a structured filter, not a fuzzy scorer
+    return {"canonical_id": cid, "name": name, "confidence": 0.95 if exact else 0.5}
 
 
 class McpToolBox:
@@ -72,11 +68,18 @@ class McpToolBox:
 
     async def _call(self, tool: str, request: dict) -> ToolResponse[Any]:
         res = await self._c.call_tool(tool, {"request": request})
-        payload = res.structured_content if res.structured_content is not None else res.data
+        payload = res.structured_content
+        if payload is None:
+            raise RuntimeError(f"{tool} returned no structured content: {res.data!r}")
         # Tools serialize their ToolResponse to a JSON-mode dict over the wire (ISO datetimes,
         # string UUIDs), so validate non-strictly to coerce those back; the envelope's
         # exactly-one-of invariant still runs.
-        resp: ToolResponse[Any] = ToolResponse[Any].model_validate(payload, strict=False)
+        return ToolResponse[Any].model_validate(payload, strict=False)
+
+    @staticmethod
+    def _require_ok(resp: ToolResponse[Any], tool: str) -> ToolResponse[Any]:
+        if resp.error is not None:
+            raise RuntimeError(f"{tool} failed: {resp.error}")
         return resp
 
     @staticmethod
@@ -104,6 +107,7 @@ class McpToolBox:
         if iso14224_class is not None:
             req["iso14224_class"] = iso14224_class
         resp = await self._call("kg.get_asset_context", req)
+        self._require_ok(resp, "kg.get_asset_context")
         ctx = dict(resp.data or {})
         if iso14224_class is not None and not ctx.get("iso14224_class"):
             ctx["iso14224_class"] = iso14224_class
@@ -112,6 +116,7 @@ class McpToolBox:
     async def tag_history(self, canonical_id: str, *, reference_time: datetime,
                           lookback_hours: int) -> tuple[list[dict], ProvenanceEntry]:
         listed = await self._call("tag.list_for_asset", {"canonical_id": canonical_id})
+        self._require_ok(listed, "tag.list_for_asset")
         start = reference_time - timedelta(hours=lookback_hours)
         out: list[dict] = []
         conn = self._conn_id(listed)
@@ -119,6 +124,8 @@ class McpToolBox:
             hist = await self._call("tag.get_history", {
                 "canonical_id": canonical_id, "tag_name": t["tag_name"],
                 "start": start.isoformat(), "end": reference_time.isoformat(), "mode": "stored"})
+            self._require_ok(hist, "tag.get_history")
+            # last-response connection_id used (single historian per asset assumption)
             conn = self._conn_id(hist) or conn
             out.append(summarize_series(hist.data or {}, role=t.get("role"),
                                         lookback_hours=lookback_hours))
@@ -130,6 +137,7 @@ class McpToolBox:
     async def work_orders_for_asset(self, canonical_id: str
                                     ) -> tuple[list[dict], ProvenanceEntry]:
         resp = await self._call("work_order.list_for_asset", {"canonical_id": canonical_id})
+        self._require_ok(resp, "work_order.list_for_asset")
         rows = [dict(w) for w in (resp.data or [])]
         prov = ProvenanceEntry(section="work_order", item_id=canonical_id,
                                tool_name="work_order.list_for_asset",
@@ -141,6 +149,7 @@ class McpToolBox:
                                   ) -> tuple[list[dict], ProvenanceEntry]:
         resp = await self._call("document.search_for_asset",
                                 {"canonical_id": canonical_id, "query": query})
+        self._require_ok(resp, "document.search_for_asset")
         rows = [dict(d) for d in (resp.data or [])]
         prov = ProvenanceEntry(section="document", item_id=canonical_id,
                                tool_name="document.search_for_asset",
@@ -154,6 +163,7 @@ class McpToolBox:
         resp = await self._call("operator_log.list_for_asset", {
             "canonical_id": canonical_id, "start": start.isoformat(),
             "end": reference_time.isoformat()})
+        self._require_ok(resp, "operator_log.list_for_asset")
         rows = [alarm_to_log(a, index=i, canonical_id=canonical_id)
                 for i, a in enumerate(resp.data or [])]
         prov = ProvenanceEntry(section="operator_log", item_id=canonical_id,

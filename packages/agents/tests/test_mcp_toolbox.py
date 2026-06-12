@@ -29,8 +29,9 @@ def stub_host() -> FastMCP:
 
     @host.tool(name="tag.get_history")
     async def hist(request: dict):
+        # Three points: mean≈2.87, max=6.6, ratio≈2.3 → critical under the pure ratio rule
         return _ok({"tag": {"tag_name": request["tag_name"]},
-                    "values": [{"value": 2.1}, {"value": 6.6}]},
+                    "values": [{"value": 1.0}, {"value": 1.0}, {"value": 6.6}]},
                    connection_id="refinery-gc.historian.pi-main")
 
     @host.tool(name="work_order.list_for_asset")
@@ -87,17 +88,29 @@ async def tb(stub_host):
         yield McpToolBox(client)
 
 
+_PROTOCOL_METHODS = {
+    "search_assets",
+    "asset_summary",
+    "get_asset_context",
+    "tag_history",
+    "work_orders_for_asset",
+    "documents_for_asset",
+    "operator_logs_for_asset",
+    "upsert_asset",
+    "link_failure_mode",
+}
+
+
 def test_satisfies_protocol(tb):
     # ToolBox is a plain (non-runtime_checkable) Protocol, so isinstance() raises; assert the
     # structural contract instead: every Protocol method exists on McpToolBox as a coroutine fn.
     methods = [n for n in dir(ToolBox) if not n.startswith("_")]
-    assert len(methods) == 9
-    for name in methods:
+    assert set(methods) == _PROTOCOL_METHODS
+    for name in _PROTOCOL_METHODS:
         fn = getattr(tb, name, None)
         assert fn is not None and inspect.iscoroutinefunction(fn), name
 
 
-@pytest.mark.asyncio
 async def test_tag_history_fans_out_and_summarizes(tb):
     tags, prov = await tb.tag_history(CID, reference_time=REF, lookback_hours=720)
     assert tags[0]["tag_name"] == "P-101A.vibration_radial"
@@ -107,21 +120,18 @@ async def test_tag_history_fans_out_and_summarizes(tb):
     assert prov.section == "tag" and prov.record_count == 1
 
 
-@pytest.mark.asyncio
 async def test_operator_logs_renamed(tb):
     logs, prov = await tb.operator_logs_for_asset(CID, reference_time=REF, lookback_hours=720)
     assert logs[0]["text"] == "slight whine" and logs[0]["at"] == "2026-03-06T00:00:00+00:00"
     assert prov.connection_id == "refinery-gc.operator_log.pi-main"
 
 
-@pytest.mark.asyncio
 async def test_get_asset_context_bridges_mar_class(tb):
     ctx = await tb.get_asset_context(CID)
     assert ctx["iso14224_class"] == "equipment-class:bb1"
     assert ctx["applicable_failure_modes"][0]["code"] == "ELP"
 
 
-@pytest.mark.asyncio
 async def test_upsert_and_link_return_bools(tb):
     assert await tb.upsert_asset(canonical_id=CID, name="P-101A",
                                  iso14224_class="equipment-class:bb1", confidence=0.95,
@@ -129,7 +139,6 @@ async def test_upsert_and_link_return_bools(tb):
     assert await tb.link_failure_mode(canonical_id=CID, failure_mode_code="ELP") is True
 
 
-@pytest.mark.asyncio
 async def test_work_orders_and_documents_passthrough(tb):
     wos, p1 = await tb.work_orders_for_asset(CID)
     assert wos[0]["work_order_id"] == "WO-50012402" and p1.connection_id

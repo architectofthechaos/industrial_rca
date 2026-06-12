@@ -9,6 +9,7 @@ dependencies = [
     "rca-llm",
     "rca-mar",
     "rca-kg",
+    "fastmcp>=2",
     "temporalio>=1.28",
     "httpx",
     "pydantic>=2",
