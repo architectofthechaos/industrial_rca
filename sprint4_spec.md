@@ -358,3 +358,43 @@ building — flagged per §7 rather than absorbed silently.
   and `POST .../hitl/respond` signals `hitl_response` (`api.py:58-74`, `workflow.py:54-64`). The
   mid-5-Whys HITL (D2) is `rca_graph._run_five_whys` → `needs_hitl=True` on `needs_human_knowledge`
   (`rca_graph.py:137-172`). WI4 exercises these live.
+
+### Resolutions discovered DURING execution (G15+)
+
+- **G15 ⚠ BUILD (D4, acceptance #7) — budget-exhaustion was never implemented.** The plan (Task 4.1)
+  assumed the workflow already honored D4; it did not. `ProbeWorkflow.run` had no `TokenBudgetExceeded`
+  handling, so a mid-probe budget breach (raised at `rca_llm/client.py:129`) propagated as a
+  `WorkflowFailureError` and `finalize_probe_run` never ran. **Built:** `workflow.py` now wraps the
+  planning/gather/rca/close body in `try/except ActivityError`; a module-level `_is_budget_exceeded`
+  walks the cause chain for an `ApplicationError` whose `.type` ends with `TokenBudgetExceeded`
+  (verified empirically: Temporal surfaces it as `err.cause.type == "TokenBudgetExceeded"`, one level
+  deep) and auto-finalizes-partial with `ProbeRunStatus.BUDGET_EXCEEDED`, tracking `_canonical_id`/
+  `_conclusion_id` as the probe progresses. No "extend budget?" HITL. Hermetic test
+  `test_probe_budget.py` (tiny budget so planning's first `complete()` trips the gate) confirms
+  RED then GREEN: `handle.result()` returns `ProbeResult(status="budget_exceeded")` instead of raising.
+- **G16 (WI3 live run) — live transports need the `rca-llm[live]` extra + keys.** `AnthropicTransport`/
+  `VoyageEmbeddingTransport` resolve their key at `__init__` and lazily import `anthropic`/`voyageai`,
+  which live behind `rca-llm[live]` and are NOT installed hermetically. `deps.build_llm` wraps transport
+  construction in `except (ImportError, ModuleNotFoundError)` and falls back to the replay-only
+  `NoUpstreamTransport` (a missing *key* is a different exception and still propagates loudly). The live
+  worker requires `uv pip install -e 'packages/llm[live]'` + `ANTHROPIC_API_KEY`/`VOYAGE_API_KEY`
+  (see `RUN.md`).
+- **G17 (WI7/#15) — cross-run reproducibility requires a seeded `probe_run_id`.** `workflow.uuid4()` is
+  only replay-deterministic within one execution, so two probes differ in `probe_run_id` (and the three
+  `det_uuid`-derived ids) unless the caller passes `probe_run_id` (the API mints it upstream to
+  202-return it). With identical inputs incl. `probe_run_id`, the `RcaConclusion` is byte-identical
+  (`test_probe_determinism.py`). The `EvidencePackage` is intentionally NOT byte-identical
+  (`FakeToolBox`/`McpToolBox` stamp `uuid4()` provenance `response_id`s) — hence the hash is on the
+  conclusion, not the package.
+- **G18 (composition-root deps) — new workspace edges.** `rca-mar` added to `rca-llm` (for `audit_pg`'s
+  `LlmCall`/session), and `rca-connector-{pi,maximo,documents}` added to `rca-agents` (for `host.py`).
+  The §8 invariant holds: agent-logic + `mcp_toolbox.py` still import only `fastmcp`+`rca_contracts`
+  (enforced by `test_no_source_imports.py`); `host.py`/`worker.py` are the exempt composition root.
+- **G19 (acceptance scope in this pass).** The live-LLM probe acceptance — D2 mid-analysis HITL, WI6
+  flywheel, WI5 whole-probe persistence — was NOT executed here (no API keys; running real probes is
+  outward-facing/cost-incurring and not authorized this pass). Those tests are written and
+  `RCA_STACK`-gated (skip clean); `RUN.md` documents the exact reproduction. What WAS verified live: the
+  pgvector Postgres image + Temporal auto-setup (D3); the MAR->KG class binding + migration 0006 (D1);
+  every connector's `test_connection` against the live simulators through the registry-seeded router
+  (D6/G7); and the Postgres persistence layer via DB-gated repo/audit tests. The MCP->connector->simulator
+  path is proven end-to-end; only the LLM-driven probe loop awaits keys.
