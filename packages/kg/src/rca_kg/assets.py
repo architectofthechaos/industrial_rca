@@ -29,6 +29,15 @@ from rca_kg import config
 from rca_kg.class_map import UnknownEquipmentClass
 
 
+def _native_props(props: dict[str, Any]) -> dict[str, Any]:
+    """Coerce Neo4j temporal property values (``neo4j.time.DateTime``/``Date``/``Time``) to
+    their python natives so Pydantic ``datetime`` fields validate (G23). Non-temporal values
+    pass through untouched. Neo4j returns stored datetimes as ``neo4j.time.DateTime``, which
+    Pydantic rejects for a ``datetime`` field — this bites when reading a *materialized* asset
+    back (``get_asset_context`` on a warm asset / the flywheel)."""
+    return {k: (v.to_native() if hasattr(v, "to_native") else v) for k, v in props.items()}
+
+
 class AssetContextSummary(BaseModel):
     id: str
     name: str
@@ -402,7 +411,7 @@ class Neo4jAssetGraph:
         cls = iso14224_class
         plant_id = None
         if asset_props and asset_props.get("iso14224_class"):
-            summary = AssetContextSummary.model_validate(asset_props)
+            summary = AssetContextSummary.model_validate(_native_props(asset_props))
             cls = asset_props.get("iso14224_class") or cls
             plant_id = asset_props.get("plant_id")
         elif canonical_id.count(":") == 3:
@@ -430,7 +439,7 @@ class Neo4jAssetGraph:
         def _summ(rows_: list[dict[str, Any]]) -> list[FailureEventSummary]:
             out = []
             for r in rows_:
-                p = r["props"]
+                p = _native_props(r["props"])
                 out.append(FailureEventSummary(
                     event_id=p.get("id", ""), canonical_id=p.get("canonical_id", ""),
                     iso14224_failure_mode=p.get("iso14224_failure_mode", ""),
