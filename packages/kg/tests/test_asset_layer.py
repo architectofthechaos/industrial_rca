@@ -240,3 +240,18 @@ async def test_kg_get_asset_context_tool():
         assert ctx.data.kg_warm is False
         assert ctx.data.asset is not None
         assert {m["code"] for m in ctx.data.applicable_failure_modes} == {"ELP", "VIB"}
+
+
+import pytest
+from rca_kg.class_map import UnknownEquipmentClass
+
+
+@pytest.mark.asyncio
+async def test_upsert_unknown_class_hard_fails():
+    from datetime import datetime, timezone
+    g = InMemoryAssetGraph()  # empty graph: no EquipmentClass nodes
+    with pytest.raises(UnknownEquipmentClass):
+        await g.upsert_asset(
+            canonical_id="asset:p:u:x", name="X", iso14224_class="equipment-class:nope",
+            iso14224_class_confidence=0.9, iso14224_class_method="register",
+            probed_at=datetime(2026, 3, 30, tzinfo=timezone.utc))

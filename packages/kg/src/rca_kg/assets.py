@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from rca_contracts import parse_canonical_id
 
 from rca_kg import config
+from rca_kg.class_map import UnknownEquipmentClass
 
 
 class AssetContextSummary(BaseModel):
@@ -148,8 +149,11 @@ class InMemoryAssetGraph:
         unit_id = _unit_id(parts.plant_id, parts.unit_slug)
         if self._node("Unit", unit_id) is not None:
             self._add_edge(canonical_id, "LOCATED_IN", unit_id)
-        if self._node("EquipmentClass", iso14224_class) is not None:
-            self._add_edge(canonical_id, "INSTANCE_OF", iso14224_class)
+        if self._node("EquipmentClass", iso14224_class) is None:
+            raise UnknownEquipmentClass(
+                f"EquipmentClass {iso14224_class!r} not in KG; cannot link INSTANCE_OF "
+                f"for {canonical_id!r}")
+        self._add_edge(canonical_id, "INSTANCE_OF", iso14224_class)
         return created
 
     async def link_failure_mode(self, *, canonical_id: str, failure_mode_code: str) -> None:
@@ -294,6 +298,12 @@ class Neo4jAssetGraph:
         iso14224_class_confidence: float, iso14224_class_method: str, probed_at: datetime,
     ) -> bool:
         parts = parse_canonical_id(canonical_id)   # G4
+        exists = await self._read(
+            "MATCH (ec:EquipmentClass {id: $cls}) RETURN ec.id AS id", cls=iso14224_class)
+        if not exists:
+            raise UnknownEquipmentClass(
+                f"EquipmentClass {iso14224_class!r} not in KG; refusing to upsert "
+                f"{canonical_id!r} (would orphan the asset)")
         rows = await self._write(
             "MERGE (a:Asset {id: $id})\n"
             "ON CREATE SET a.materialized_at = $probed_at, a._created = true\n"
@@ -307,9 +317,8 @@ class Neo4jAssetGraph:
             "FOREACH (_ IN CASE WHEN u IS NULL THEN [] ELSE [1] END |\n"
             "    MERGE (a)-[:LOCATED_IN]->(u))\n"
             "WITH a, created\n"
-            "OPTIONAL MATCH (ec:EquipmentClass {id: $cls})\n"
-            "FOREACH (_ IN CASE WHEN ec IS NULL THEN [] ELSE [1] END |\n"
-            "    MERGE (a)-[:INSTANCE_OF]->(ec))\n"
+            "MATCH (ec:EquipmentClass {id: $cls})\n"
+            "MERGE (a)-[:INSTANCE_OF]->(ec)\n"
             "RETURN created",
             id=canonical_id, name=name, plant_id=parts.plant_id, unit_slug=parts.unit_slug,
             cls=iso14224_class, conf=iso14224_class_confidence, method=iso14224_class_method,
