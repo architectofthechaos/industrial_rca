@@ -245,3 +245,35 @@ root-caused, fixed with a hermetic regression test, and committed:
 - **Mechanism vocabulary to the LLM (quality).** G26 makes persist robust; the rank-hypotheses
   prompt should additionally be given the valid `failure-mechanism:*` ids so the LLM picks a
   specific mechanism rather than `other`. Sprint 6.
+
+### WI2–WI4 — productionize the data path: DONE, 2026-06-12
+
+- **WI2 / D8 / closes G10 — HTTP transport.** The live worker now builds its `fastmcp.Client`
+  against `MCP_HOST_URL` (default `http://127.0.0.1:8100/mcp`, served by `task probe:host` =
+  `python -m rca_agents.host`); `McpToolBox` unchanged. Validated LIVE: the full walkthrough
+  (with D2 HITL) **and** the flywheel both pass over HTTP (host served 78 `POST /mcp` calls);
+  pointing elsewhere is `MCP_HOST_URL` only. Hermetic suite still uses the in-process Client.
+  (`config.py:mcp_host_url`, `worker.py`, `test_config_mcp_host.py`.)
+- **WI3 / D9 / Risk #5 — host isolation + health.** FastMCP isolates a failing tool per-request
+  (host stays up; test `test_host_health.py`); added `GET /health` reporting host liveness +
+  per-mount readiness (validated live: `status:ok`, 6 mounts, 27 tools); documented the path to
+  one-process-per-server (config+deploy, not a rewrite) in `host.py`.
+- **WI4 / D10 — dynamic RegistryConnectionRouter.** `RegistryConnectionRouter` (connector_sdk)
+  resolves each (plant, category) by querying `connections_api list_connections(status='active')`
+  per request (optional TTL cache), delegating the four resolution rules (explicit/single/none/
+  ambiguous) to `StaticConnectionRouter` verbatim (hermetic `test_registry_router.py`). The host
+  defaults to it (static dev fallback only when the registry is *unreachable*; an empty reachable
+  result yields `NoActiveConnection`). Proven LIVE on one never-restarted host: document connection
+  **active → 5 docs; disabled → `source_unavailable` (rerouted); re-active → 5 docs** — no worker
+  restart (`test_dynamic_routing.py`); and a full live probe completes end-to-end over the dynamic
+  router.
+
+**Cross-cutting (§5) — all hold:** Sprint-4 gated paths live (D7); worker over HTTP, config-only
+(D8); host survives a failing tool + `/health` + prod path documented (D9); per-request registry
+routing + disable→reroute-without-restart + 4 rules tested (D10); full live P-101A probe over HTTP
++ dynamic routing (headline); ruff + mypy clean (with and without the `[live]` extra), hermetic
+suite 547 passed / 11 skipped (+~30 new tests, no regressions).
+
+**Deferred to Sprint 6:** real pgvector `vector` column; `PostgresResponseCache`; MAR-backed
+gateway for live CMMS work-order evidence; feeding the mechanism vocabulary to the rank-hypotheses
+prompt; investigate the test-isolation gap that wiped live `rca_mar` assets mid-session.
