@@ -48,6 +48,7 @@ from .routing import (
     ConnectionInfo,
     ConnectionRouter,
     NoActiveConnection,
+    RegistryConnectionRouter,
     StaticConnectionRouter,
 )
 from .secrets import (
@@ -81,7 +82,8 @@ __all__ = [
     "InMemoryTagResolver", "StaticCredentialBroker", "NullCostSink",
     "NullEventSink", "CollectingEventSink",
     # connection routing
-    "ConnectionInfo", "ConnectionRouter", "StaticConnectionRouter", "NoActiveConnection",
+    "ConnectionInfo", "ConnectionRouter", "StaticConnectionRouter", "RegistryConnectionRouter",
+    "NoActiveConnection",
     # asset gateway (canonical_id -> vendor tag / source handle)
     "AssetGateway", "CanonicalSlugAssetGateway", "StaticAssetGateway",
     # secret refs
