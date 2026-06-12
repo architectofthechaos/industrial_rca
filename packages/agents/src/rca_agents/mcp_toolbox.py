@@ -202,6 +202,12 @@ class McpToolBox:
             "canonical_id": canonical_id, "failure_mode_code": failure_mode_code})
         return resp.error is None
 
+    async def failure_modes_for_class(self, equipment_class_id: str) -> list[dict]:
+        resp = await self._call("kg.list_failure_modes_for_class",
+                                {"equipment_class_id": equipment_class_id})
+        self._require_ok(resp, "kg.list_failure_modes_for_class")
+        return [dict(e) for e in (resp.data or [])]
+
 
 _TAG_RE = re.compile(r"[A-Za-z]{1,5}-?\d{2,}[A-Za-z]?")
 

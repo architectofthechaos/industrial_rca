@@ -92,6 +92,7 @@ _PROTOCOL_METHODS = {
     "search_assets",
     "asset_summary",
     "get_asset_context",
+    "failure_modes_for_class",
     "tag_history",
     "work_orders_for_asset",
     "documents_for_asset",

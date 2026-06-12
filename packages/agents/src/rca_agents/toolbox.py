@@ -39,6 +39,7 @@ class ToolBox(Protocol):
     async def asset_summary(self, canonical_id: str) -> dict | None: ...
     async def get_asset_context(self, canonical_id: str,
                                 iso14224_class: str | None = None) -> dict: ...
+    async def failure_modes_for_class(self, equipment_class_id: str) -> list[dict]: ...
     async def tag_history(self, canonical_id: str, *, reference_time: datetime,
                           lookback_hours: int) -> tuple[list[dict], ProvenanceEntry]: ...
     async def work_orders_for_asset(
@@ -107,10 +108,26 @@ class FakeToolBox:
             "operator_log": "refinery-gc.operator_log.pi-main",
         },
         # which KG failure modes this class can exhibit (codes that VALIDATE in the ontology)
+        # mechanisms = real CAUSED_BY rels from packages/kg/seed/iso14224_bb1.cypher (D14)
         "applicable_failure_modes": [
-            {"code": "ELP", "id": "failure-mode:elp", "name": "External leakage process medium"},
-            {"code": "VIB", "id": "failure-mode:vib", "name": "Vibration"},
-            {"code": "OHE", "id": "failure-mode:ohe", "name": "Overheating"},
+            {"code": "ELP", "id": "failure-mode:elp", "name": "External leakage process medium",
+             "mechanisms": [
+                 {"id": "failure-mechanism:seal-failure", "name": "Seal failure"},
+                 {"id": "failure-mechanism:corrosion", "name": "Corrosion"},
+                 {"id": "failure-mechanism:wear", "name": "Wear"}]},
+            {"code": "VIB", "id": "failure-mode:vib", "name": "Vibration",
+             "mechanisms": [
+                 {"id": "failure-mechanism:cavitation", "name": "Cavitation"},
+                 {"id": "failure-mechanism:misalignment", "name": "Misalignment"},
+                 {"id": "failure-mechanism:imbalance", "name": "Imbalance"},
+                 {"id": "failure-mechanism:bearing-wear", "name": "Bearing wear"},
+                 {"id": "failure-mechanism:looseness", "name": "Looseness"}]},
+            {"code": "OHE", "id": "failure-mode:ohe", "name": "Overheating",
+             "mechanisms": [
+                 {"id": "failure-mechanism:lubrication-failure", "name": "Lubrication failure"},
+                 {"id": "failure-mechanism:bearing-wear", "name": "Bearing wear"},
+                 {"id": "failure-mechanism:overheating", "name": "Overheating"},
+                 {"id": "failure-mechanism:fouling", "name": "Fouling"}]},
         ],
     }
 
@@ -188,6 +205,9 @@ class FakeToolBox:
             return False
         self.linked_modes.append(pair)
         return True
+
+    async def failure_modes_for_class(self, equipment_class_id: str) -> list[dict]:
+        return list(self.fixture["applicable_failure_modes"])
 
 
 __all__ = ["ToolBox", "FakeToolBox", "STEP_TYPE_TO_TOOL", "ProvenanceEntry"]
