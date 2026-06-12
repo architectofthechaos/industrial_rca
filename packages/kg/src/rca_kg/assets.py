@@ -449,6 +449,7 @@ class Neo4jAssetGraph:
 
 
 __all__ = [
-    "AssetGraph", "InMemoryAssetGraph", "Neo4jAssetGraph", "InvalidFailureModePair",
+    "AssetGraph", "InMemoryAssetGraph", "Neo4jAssetGraph",
+    "InvalidFailureModePair", "UnknownEquipmentClass",
     "AssetContext", "AssetContextSummary", "FailureEventSummary",
 ]
