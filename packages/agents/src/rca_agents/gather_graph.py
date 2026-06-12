@@ -130,7 +130,7 @@ class GatherAgent:
         usage = TokenUsage()
         llm_ids: list = []
         context = raw.get("context") or await ctx.toolbox.get_asset_context(cid)
-        equipment_class = context.get("iso14224_class") or "equipment-class:bb1"
+        equipment_class = context.get("iso14224_class")
         investigated = [c.iso14224_code for c in plan.candidate_failure_modes[:3]]
 
         # materialize_kg — lazy Asset upsert + per-mode CAN_EXHIBIT links
