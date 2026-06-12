@@ -2,14 +2,15 @@
 
 Covers:
 1. embedding_v1 path — prior RCA ranks above datasheet via FakeToolBox vector hits.
-2. Keyword-scorer comparison — shows the keyword scorer alone would NOT consistently place the
-   RCA first (the datasheet matches more failure-mode keyword terms in the fixture), proving
-   the two methods differ in their ordering.
+2. Genuine rank reversal (§5.4) — keyword scorer places the keyword-dense datasheet FIRST;
+   semantic scorer places the domain-language RCA FIRST.  This is the unambiguous proof that
+   embedding_v1 surfaces relevant priors that keyword overlap would MISS.
 3. Keyword fallback — when connection_id is None, score_method == "keyword_overlap".
 4. Keyword fallback — when search_documents_by_vector returns [], score_method == "keyword_overlap".
 """
 from __future__ import annotations
 
+import copy
 import json
 from uuid import uuid4
 
@@ -54,6 +55,70 @@ def _plan() -> InvestigationPlan:
         ])
 
 
+# ---------------------------------------------------------------------------
+# Reversal-fixture helpers (Test 2 only — DEFAULT_FIXTURE is NOT touched)
+# ---------------------------------------------------------------------------
+
+def _reversal_plan() -> InvestigationPlan:
+    """Plan whose candidate names contribute 'seal','degradation','bearing','failure' to the
+    keyword term set, giving a combined set of 7 tokens:
+    {'seal','degradation','bearing','failure','leak','vibration','mechanical'}.
+
+    The datasheet title+excerpt is crafted to hit ALL 7 → keyword score 1.0.
+    The RCA title+excerpt is written in domain language that hits NONE → keyword score 0.0.
+    So keyword ranks  datasheet > RCA  (1.0 vs 0.0).
+    The custom FakeToolBox returns vector scores RCA=0.93, datasheet=0.40.
+    So semantic ranks  RCA > datasheet  (0.93 vs 0.40).
+    This is the §5.4 genuine rank reversal.
+    """
+    return InvestigationPlan(
+        plan_id=uuid4(), probe_run_id=PROBE_RUN_ID, version=1,
+        asset_canonical_id="asset:refinery-gc:unit-101:p-101a",
+        candidate_failure_modes=[
+            FailureModeCandidate(iso14224_code="ELP", name="Seal degradation", rank=1,
+                                 confidence=0.7, reasoning="face wear"),
+            FailureModeCandidate(iso14224_code="VIB", name="Bearing failure", rank=2,
+                                 confidence=0.5, reasoning="vib climbing")],
+        steps=[
+            PlanStep(step_id=uuid4(), step_type="tag_history", description="tags",
+                     parameters={}, rationale="r"),
+            PlanStep(step_id=uuid4(), step_type="work_orders", description="WOs",
+                     parameters={}, rationale="r"),
+            PlanStep(step_id=uuid4(), step_type="documents",
+                     description="docs", parameters={"query": "seal degradation"}, rationale="r"),
+            PlanStep(step_id=uuid4(), step_type="operator_logs", description="logs",
+                     parameters={}, rationale="r"),
+            PlanStep(step_id=uuid4(), step_type="kg_query", description="KG",
+                     parameters={}, rationale="r"),
+        ])
+
+
+# Keyword-dense datasheet: title+excerpt contains every term in the 7-token set.
+# Combined term set = {'seal','degradation','bearing','failure','leak','vibration','mechanical'}
+# 'seal'✓ 'degradation'✓ 'bearing'✓ 'failure'✓ 'leak'✓ 'vibration'✓ 'mechanical'✓  → 7/7 = 1.0
+_REVERSAL_DATASHEET = {
+    "document_id": "DS-REVERSAL",
+    "title": "Pump datasheet: mechanical seal bearing assembly",
+    "doc_type": "datasheet",
+    "excerpt": "vibration limits, leak detection, degradation thresholds, failure modes listed",
+}
+
+# Domain-language RCA: describes the failure without hitting any keyword tokens.
+# None of {'seal','degradation','bearing','failure','leak','vibration','mechanical'} appear.
+# → 0/7 = 0.0
+_REVERSAL_RCA = {
+    "document_id": "RCA-REVERSAL",
+    "title": "Prior RCA: progressive face scoring on sister unit",
+    "doc_type": "rca_report",
+    "excerpt": (
+        "progressive face scoring from inadequate barrier-fluid circulation "
+        "caused elevated interface temperature and subsequent rapid face separation"
+    ),
+}
+
+_REVERSAL_DOCS = [_REVERSAL_DATASHEET, _REVERSAL_RCA]
+
+
 def _seed(plan: InvestigationPlan) -> dict:
     return {"agent": "gather", "plan": plan.model_dump(mode="json"), "lookback_hours": 168}
 
@@ -91,51 +156,87 @@ async def test_embedding_v1_ranks_prior_rca_above_datasheet():
 
 
 # ---------------------------------------------------------------------------
-# Test 2: keyword scorer produces different scores than semantic (semantic win demonstration)
+# Test 2: §5.4 — GENUINE rank reversal proving semantic win over keyword scoring
 # ---------------------------------------------------------------------------
-def test_keyword_scorer_produces_different_scores_than_semantic():
-    """Calling _score_documents_keyword directly on the fixture docs + plan shows the two
-    methods differ in their *scores*, even when the ordering happens to agree.
+async def test_semantic_win_is_genuine_rank_reversal():
+    """§5.4 genuine rank reversal: keyword ranks the datasheet FIRST; semantic ranks the RCA FIRST.
 
-    The semantic win is not merely about ordering — it is about signal quality:
-    - Semantic scores come from cosine similarity (FakeToolBox: RCA=0.95, DS=0.55).
-    - Keyword scores are derived from term overlap (RCA≈0.71, DS≈0.29).
-    The semantic scorer captures intent proximity, not just surface vocabulary.
+    This is the unambiguous demonstration that embedding_v1 surfaces a relevant prior RCA
+    that keyword-overlap scoring would MISS (the RCA text uses domain language with zero
+    overlap against the keyword term set, so keyword scoring would never surface it first).
 
-    Both rank the prior RCA first in this fixture (the RCA excerpt contains more
-    failure-mode vocabulary than the datasheet), but the semantic *score gap* is wider
-    (0.95 vs 0.55 = 0.40 gap) vs keyword (≈0.71 vs ≈0.29 = 0.42 gap).  The key point
-    is that the two methods produce *different score values* and that the gather agent
-    labels its output correctly."""
-    docs = list(FakeToolBox.DEFAULT_FIXTURE["documents"])
-    plan = _plan()
+    Keyword term set (7 tokens from _reversal_plan() candidate names + hardcoded set):
+        {'seal','degradation','bearing','failure','leak','vibration','mechanical'}
 
-    kw_scored, kw_method = GatherAgent._score_documents_keyword(docs, plan)
+    _REVERSAL_DATASHEET title+excerpt contains ALL 7 tokens  → keyword score 7/7 = 1.0
+    _REVERSAL_RCA title+excerpt contains NONE of them        → keyword score 0/7 = 0.0
+
+    Custom FakeToolBox returns vector scores: RCA=0.93, datasheet=0.40
+    → semantic ranks RCA first (0.93 > 0.40).
+
+    The DEFAULT_FIXTURE is NOT touched; this test uses its own isolated documents list
+    and a custom FakeToolBox subclass with an overridden search_documents_by_vector.
+    """
+    plan = _reversal_plan()
+
+    # --- Assertion 1: keyword ranks DATASHEET first (it would MISS the RCA) ----------
+    kw_scored, kw_method = GatherAgent._score_documents_keyword(_REVERSAL_DOCS, plan)
     assert kw_method == "keyword_overlap"
 
-    # Both should still rank RCA first (the RCA excerpt has more failure-mode terms too)
-    kw_order = [d.document_id for d in kw_scored]
-    assert kw_order[0] == "RCA-2025-014", "keyword scorer should also rank RCA first"
+    kw_ds_score = next(d.score for d in kw_scored if d.document_id == "DS-REVERSAL")
+    kw_rca_score = next(d.score for d in kw_scored if d.document_id == "RCA-REVERSAL")
 
-    # Scores MUST differ: keyword overlap is bounded [0, 1] by term ratio; the semantic
-    # scores are cosine similarities (0.95/0.55 from the fake vector search).
-    kw_rca_score = next(d.score for d in kw_scored if d.document_id == "RCA-2025-014")
-    kw_ds_score = next(d.score for d in kw_scored if d.document_id == "P-101A-DS")
+    assert kw_ds_score > kw_rca_score, (
+        f"keyword must rank datasheet first (DS score {kw_ds_score} must exceed "
+        f"RCA score {kw_rca_score}): keyword scoring would MISS the domain-language RCA")
+    assert kw_scored[0].document_id == "DS-REVERSAL", (
+        "keyword scorer must place the keyword-dense datasheet first")
 
-    # Semantic scores as returned by FakeToolBox
-    sem_rca_score = 0.95
-    sem_ds_score = 0.55
+    # --- Assertion 2: semantic (embedding_v1) ranks RCA first (genuine reversal) -------
+    class _ReversalToolBox(FakeToolBox):
+        """Isolated FakeToolBox: documents list replaced with the reversal fixture;
+        search_documents_by_vector returns RCA=0.93 > datasheet=0.40 (semantic win).
+        DEFAULT_FIXTURE is NOT mutated."""
 
-    # The two methods yield different score values
-    assert kw_rca_score != sem_rca_score, (
-        "keyword and semantic scores for RCA-2025-014 must differ")
-    assert kw_ds_score != sem_ds_score, (
-        "keyword and semantic scores for P-101A-DS must differ")
+        def __init__(self) -> None:
+            # Build a fixture from DEFAULT_FIXTURE but with the reversal docs list
+            fixture = copy.deepcopy(FakeToolBox.DEFAULT_FIXTURE)
+            fixture["documents"] = list(_REVERSAL_DOCS)
+            super().__init__(fixture=fixture)
 
-    # Semantic RCA score (0.95) is meaningfully higher than any keyword score
-    # (keyword scores are bounded by term-overlap / vocab-size ratio, max ~0.71 here)
-    assert sem_rca_score > kw_rca_score, (
-        "semantic cosine similarity (0.95) should exceed keyword overlap ratio for RCA")
+        async def search_documents_by_vector(self, *, connection_id, query_embedding,
+                                              doc_types=None, top=5):
+            # Semantic scores: the domain-language RCA is semantically closest to the
+            # failure-mode query (0.93); the keyword-dense datasheet scores low (0.40).
+            hits = [
+                {"document_id": "RCA-REVERSAL", "doc_type": "rca_report", "score": 0.93},
+                {"document_id": "DS-REVERSAL",  "doc_type": "datasheet",  "score": 0.40},
+            ]
+            if doc_types:
+                hits = [h for h in hits if h["doc_type"] in doc_types]
+            return hits[:top]
+
+    agent = build_graph()
+    ctx = leg_ctx(scripted_llm({_ANOMALY_KEY: _ANOMALIES}), prompt="P-101A",
+                  toolbox=_ReversalToolBox())
+    leg = await agent.run_leg(graph_state=_seed(plan), hitl_response=None, ctx=ctx)
+    assert leg.needs_hitl is False
+
+    pkg = EvidencePackage.model_validate(leg.final_output["evidence_package"])
+    de = pkg.document_evidence
+
+    assert de.score_method == "embedding_v1", (
+        f"expected embedding_v1 (semantic path) but got {de.score_method!r}")
+    assert de.documents[0].document_id == "RCA-REVERSAL", (
+        f"semantic must rank the domain-language RCA first (genuine reversal), "
+        f"got {de.documents[0].document_id!r}")
+    assert de.documents[0].score == 0.93
+
+    # Confirm the datasheet is present but second (rank reversed vs keyword)
+    ids = [d.document_id for d in de.documents]
+    assert "DS-REVERSAL" in ids
+    assert ids.index("RCA-REVERSAL") < ids.index("DS-REVERSAL"), (
+        "RCA must appear before the keyword-dense datasheet — this is the reversal")
 
 
 # ---------------------------------------------------------------------------
