@@ -232,6 +232,8 @@ def build_router(
                 status_code=409,
                 detail={"error": "category_conflict",
                         "conflicting_connection_id": exc.existing_connection_id}) from exc
+        # Inline (awaited) listener: a slow listener delays the activate HTTP response. Fine for
+        # the connect-only embedding trigger at MVP scale; switch to a task queue if it grows.
         if activation_listener is not None:
             try:
                 await activation_listener(activated)
@@ -243,4 +245,4 @@ def build_router(
     return router
 
 
-__all__ = ["build_router"]
+__all__ = ["build_router", "ActivationListener"]
