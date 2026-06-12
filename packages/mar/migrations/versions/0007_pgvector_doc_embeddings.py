@@ -31,6 +31,12 @@ def upgrade() -> None:
     op.execute("ALTER TABLE document_embeddings ADD COLUMN IF NOT EXISTS doc_type text")
     op.execute("ALTER TABLE document_embeddings ADD COLUMN IF NOT EXISTS description text")
     op.execute("ALTER TABLE document_embeddings ADD COLUMN IF NOT EXISTS connection_id text")
+    # IVFFlat note: built on an EMPTY table here — it has no trained centroids, so cosine
+    # queries fall back to a seqscan (correct, just unindexed) until the cache is populated and
+    # the index is rebuilt: `REINDEX INDEX CONCURRENTLY ix_doc_embeddings_cosine; ANALYZE
+    # document_embeddings;` once it reaches ~1000+ rows. lists=100 targets ~100k rows; if the
+    # connected-doc corpus stays small, HNSW (no lists param, good recall on small/empty sets)
+    # is the lower-maintenance alternative. Fine for the MVP scale.
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_doc_embeddings_cosine ON document_embeddings "
         "USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)")
