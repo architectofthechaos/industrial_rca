@@ -132,9 +132,13 @@ class McpToolBox:
         out: list[dict] = []
         conn = self._conn_id(listed)
         for t in (listed.data or []):
+            # interpolated (evenly-spaced, downsampled) — not raw "stored" points: the toolbox
+            # only needs summary stats, and a multi-day "stored" window returns ~550k points/tag
+            # (~25s), blowing the gather-leg timeout. Interpolated is ~10k points/tag (~0.6s) (G24).
             hist = await self._call("tag.get_history", {
                 "canonical_id": canonical_id, "tag_name": t["tag_name"],
-                "start": start.isoformat(), "end": reference_time.isoformat(), "mode": "stored"})
+                "start": start.isoformat(), "end": reference_time.isoformat(),
+                "mode": "interpolated"})
             self._require_ok(hist, "tag.get_history")
             # last-response connection_id used (single historian per asset assumption)
             conn = self._conn_id(hist) or conn
