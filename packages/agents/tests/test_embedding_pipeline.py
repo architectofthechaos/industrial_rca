@@ -20,12 +20,15 @@ class _Store:
     def __init__(self) -> None:
         self.rows: list[dict] = []
         self.deleted: list[str] = []
+        self.events: list[str] = []
 
     async def upsert_document_embedding(self, **kw: object) -> None:
         self.rows.append(kw)
+        self.events.append("upsert")
 
     async def delete_document_embeddings_for_connection(self, connection_id: str) -> None:
         self.deleted.append(connection_id)
+        self.events.append("delete")
 
 
 class _DocSource:
@@ -139,7 +142,7 @@ async def test_rows_have_content_hash() -> None:
 
 
 async def test_content_hashes_are_unique() -> None:
-    """Each doc gets a distinct content_hash (hashed with connection_id + document_id + text)."""
+    """Each doc gets a distinct content_hash (hashed with connection_id + document_id + body)."""
     store = _Store()
     pipeline = _make_pipeline(store)
     await pipeline.embed_for_connection("conn-001", plant_id="refinery-gc")
@@ -154,9 +157,11 @@ async def test_replace_true_deletes_before_upsert() -> None:
     conn = "conn-replace-test"
     await pipeline.embed_for_connection(conn, plant_id="refinery-gc", replace=True)
     assert conn in store.deleted, "delete must be called when replace=True"
-    # Delete happens before any upsert: check ordering via the store's own lists
-    # (deleted is populated before rows in a correct impl)
-    assert len(store.deleted) >= 1
+    # Prove ordering invariant: delete event must precede every upsert event
+    assert store.events and store.events[0] == "delete", "first event must be delete, not upsert"
+    assert store.events.index("delete") < store.events.index("upsert"), (
+        "delete must appear before any upsert in the event log"
+    )
 
 
 async def test_replace_false_skips_delete() -> None:

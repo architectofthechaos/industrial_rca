@@ -5,7 +5,13 @@ connection_id + content_hash. p_and_id is excluded this sprint."""
 from __future__ import annotations
 
 import hashlib
+import logging
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
+
+from rca_llm import EmbeddingTransport
+
+logger = logging.getLogger(__name__)
 
 EMBED_DOC_TYPES = ("datasheet", "rca_report")  # D16: p_and_id excluded
 
@@ -25,11 +31,12 @@ def _content_hash(text: str) -> str:
 
 
 class DocumentEmbeddingPipeline:
-    def __init__(self, *, doc_source: DocSource, embed: Any, summarize: Any,
+    def __init__(self, *, doc_source: DocSource, embed: EmbeddingTransport,
+                 summarize: Callable[[str], Awaitable[str]],
                  store: EmbeddingStore, model: str) -> None:
         self._docs = doc_source
-        self._embed = embed
-        self._summarize = summarize
+        self._embed: EmbeddingTransport = embed
+        self._summarize: Callable[[str], Awaitable[str]] = summarize
         self._store = store
         self._model = model
 
@@ -48,7 +55,12 @@ class DocumentEmbeddingPipeline:
                 text = f"{body}\n{description}".strip()
                 vec = (await self._embed.embed(model=self._model, texts=[text]))[0]
                 await self._store.upsert_document_embedding(
-                    content_hash=_content_hash(f"{connection_id}:{ref['document_id']}:{text}"),
+                    # content_hash uses the stable source body (not the LLM description) so the
+                    # (content_hash, model) row identity is deterministic across refreshes.
+                    # The description is non-deterministic for a live LLM and is excluded from
+                    # the key; body-hash serves as the change-detection proxy (G29: no version
+                    # field on documents today).
+                    content_hash=_content_hash(f"{connection_id}:{ref['document_id']}:{body}"),
                     model=self._model, document_id=ref["document_id"], doc_type=doc_type,
                     description=description, embedding=vec, connection_id=connection_id)
                 count += 1
@@ -59,7 +71,8 @@ class DocumentEmbeddingPipeline:
             return ""
         try:
             return await self._summarize(body)
-        except Exception:  # noqa: BLE001 — a summary failure must not block the embed
+        except Exception as exc:  # noqa: BLE001 — a summary failure must not block the embed
+            logger.warning("summarize failed (%s); embedding without a description", exc)
             return ""
 
 
