@@ -4,6 +4,23 @@ This is the ONLY agents-package module allowed to import connector/MAR/KG server
 entrypoint, not agent logic — §8 scope note). The worker builds the host, wraps it in a
 fastmcp.Client, and hands the client to McpToolBox. Swapping in-process for HTTP is a Client
 construction change here; nothing in the toolbox or agents changes.
+
+Process isolation (D9 / Risk #5)
+--------------------------------
+For the pilot, all six entity servers are mounted into ONE FastMCP process (operational
+simplicity). FastMCP isolates tool failures per-request — a raising/failing tool returns an
+error to the caller and the host stays up (test: ``test_host_health.py``) — and every tool
+already returns a typed ``ToolResponse.error`` rather than crashing. ``GET /health`` reports
+host liveness + per-mount readiness.
+
+Path to one-process-per-server for production (NOT implemented this sprint): each
+``make_*_mcp`` factory already stands alone, so a connector can be split into its own process by
+serving it standalone (``make_tag_mcp(...).run(transport="http", port=...)``) and registering
+that URL as the source's active connection in ``connections_api`` — the dynamic
+``RegistryConnectionRouter`` (WI4) then routes to it with no code change. The agent/worker side
+is unaffected (it only ever speaks MCP to the host URL). Splitting is therefore config +
+deployment, not a rewrite; do it when a single crashing source must not affect the others or
+when per-source scaling/SLAs diverge.
 """
 from __future__ import annotations
 
@@ -95,7 +112,46 @@ async def build_entity_host(*, router: StaticConnectionRouter | None = None,
                                      default_base_url=HISTORIAN_SIM_URL))
     host.mount(make_work_order_mcp(router=router, assets=gateway, default_base_url=CMMS_SIM_URL))
     host.mount(make_document_mcp(router=router, assets=gateway, default_base_url=DOCUMENT_SIM_URL))
+    _register_health(host)
     return host
+
+
+# Per-mount readiness for /health: each expected entity mount + the tool-name prefix that proves
+# it loaded. (D9 — host + per-mount status.)
+_EXPECTED_MOUNTS = {
+    "asset": "asset.",        # MAR
+    "kg": "kg.",              # KG (+ asset layer)
+    "tag": "tag.",            # PI historian
+    "operator_log": "operator_log.",
+    "work_order": "work_order.",   # Maximo
+    "document": "document.",       # SharePoint/docs
+}
+
+
+def _register_health(host: FastMCP) -> None:
+    """GET /health — host liveness + per-mount readiness (D9, Risk #5).
+
+    Reports each expected entity mount as ready iff its tools loaded into the host. 200 when all
+    mounts are present (degraded/503 if any is missing — a misconfigured/failed mount). This is a
+    lightweight readiness check (mounts loaded), distinct from each connector's own
+    ``test_connection`` (upstream reachability)."""
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+
+    @host.custom_route("/health", methods=["GET"])
+    async def health(_request: Request) -> JSONResponse:
+        try:
+            tool_names = [t.name for t in await host.list_tools()]
+        except Exception as exc:  # noqa: BLE001 — a broken host is unhealthy, never raise
+            return JSONResponse({"status": "unhealthy", "error": f"{type(exc).__name__}: {exc}"},
+                                status_code=503)
+        mounts = {name: any(t.startswith(prefix) for t in tool_names)
+                  for name, prefix in _EXPECTED_MOUNTS.items()}
+        ok = all(mounts.values())
+        return JSONResponse(
+            {"status": "ok" if ok else "degraded", "mounts": mounts,
+             "tool_count": len(tool_names)},
+            status_code=200 if ok else 503)
 
 
 def main() -> None:
