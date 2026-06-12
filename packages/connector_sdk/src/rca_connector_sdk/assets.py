@@ -11,6 +11,8 @@ MAR-backed (wired during onboarding); these implementations cover dev/tests:
   (a CMMS location is not derivable from the slug), so ``source_handle`` raises NotFound.
 * ``StaticAssetGateway`` maps explicit canonical_id -> tag and (canonical_id, category) ->
   handle, for overrides/tests that need a value the slug rule wouldn't produce.
+* ``MarAssetGateway`` resolves (canonical_id, category) -> source handle via the MAR
+  asset register (D13/G28): canonical_id -> asset_id -> active connection -> source handle.
 """
 from __future__ import annotations
 
@@ -116,11 +118,9 @@ class MarAssetGateway(CanonicalSlugAssetGateway):
         return handle
 
     async def _active_connection(self, plant_id: str, category: str) -> Any:
-        conns = await self._repo.list_connections(plant_id=plant_id, category=category)
-        for c in conns:
-            if getattr(c, "status", None) == "active":
-                return c
-        return None
+        conns = await self._repo.list_connections(
+            plant_id=plant_id, category=category, status="active")
+        return conns[0] if conns else None
 
 
 __all__ = ["AssetGateway", "CanonicalSlugAssetGateway", "MarAssetGateway", "StaticAssetGateway"]
