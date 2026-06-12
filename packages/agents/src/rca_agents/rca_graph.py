@@ -250,11 +250,11 @@ class RcaAgent:
     # ---- builders / validation -------------------------------------------------
     def _build_conclusion(self, state, ctx: LegContext, pkg: EvidencePackage,
                           ranked: dict,
-                          valid_mechanisms: set[str] | list[str] | None = None) -> RcaConclusion:
+                          valid_mechanisms: list[str] | None = None) -> RcaConclusion:
         regen = int(state.get("regen_count", 0))
-        primary = self._hyp(ranked.get("primary_hypothesis", {}), rank=1,
-                            valid_mechanisms=valid_mechanisms)
-        alts = [self._hyp(h, rank=i + 2, valid_mechanisms=valid_mechanisms)
+        vocab = frozenset(valid_mechanisms) if valid_mechanisms else None  # hash once, not per-hyp
+        primary = self._hyp(ranked.get("primary_hypothesis", {}), rank=1, valid_mechanisms=vocab)
+        alts = [self._hyp(h, rank=i + 2, valid_mechanisms=vocab)
                 for i, h in enumerate(ranked.get("alternative_hypotheses", []))]
         fishbone = [FishboneCategory(
             category=_one_of(c.get("category") or c.get("name"), _FISHBONE_CATS, "Method"),
@@ -307,9 +307,9 @@ class RcaAgent:
 
     @staticmethod
     def _hyp(h: dict, *, rank: int,
-             valid_mechanisms: set[str] | list[str] | None = None) -> RankedHypothesis:
+             valid_mechanisms: frozenset[str] | None = None) -> RankedHypothesis:
         mech = h.get("iso14224_mechanism", "failure-mechanism:other")
-        if valid_mechanisms and mech not in set(valid_mechanisms):
+        if valid_mechanisms and mech not in valid_mechanisms:
             mech = "failure-mechanism:other"
         return RankedHypothesis(
             rank=rank, iso14224_failure_mode=h.get("iso14224_failure_mode", "UNK"),

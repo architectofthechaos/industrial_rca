@@ -150,7 +150,10 @@ _CID = "asset:refinery-gc:unit-101:p-101a"
 class _MechRcaTransport:
     """Scripted RCA transport that lets callers inject a specific iso14224_mechanism
     in the rank response.  All other legs (fishbone, gaps, 5-whys) give minimal-valid
-    responses so the agent reaches _rank_validate_propose without HITL stops."""
+    responses so the agent reaches _rank_validate_propose without HITL stops.
+
+    NOTE: parallels ``_RcaTransport`` in test_rca_agent.py — same prompt-routing sentinels
+    ("Ishikawa", "Advance the 5 Whys", "Rank the failure hypotheses"); keep them in sync."""
 
     def __init__(self, primary_mechanism: str) -> None:
         self._mech = primary_mechanism
