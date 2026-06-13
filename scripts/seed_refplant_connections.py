@@ -20,17 +20,24 @@ index. So BEFORE upserting each of the four probe connections as ``active``, we 
 *other* active connection in the same (plant, category) to ``disabled``. This makes the four
 probe connections the sole actives for historian / operator_log / cmms / document, and keeps the
 script idempotent (on re-run there is nothing left to demote).
+
+After demotion, active aliases on the demoted connection are REBOUND onto the new active
+connection (``connection_rebind``). ``MarAssetGateway`` resolves CMMS handles only against the
+active connection — without this step, work-order gather fails even though the simulator is up.
 """
 from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import datetime, timezone
+from uuid import UUID
 
 from rca_mar.config import make_engine, make_session_factory
-from rca_mar.repository import ConnectionRow
+from rca_mar.repository import AliasRow, ConnectionRow
 from rca_mar.repository_pg import PostgresRepository
 
 PLANT_ID = "refinery-gc"
+TENANT_ID = UUID("0190d3c9-0000-7000-8000-0000000000ff")
 
 # (connection_id, category, connector_type, base_url, display_name) — ids/categories/types/
 # base_urls mirror rca_agents.host._static_dev_router exactly.
@@ -68,16 +75,48 @@ CONNECTIONS = [
 
 async def _demote_conflicting_actives(
     repo: PostgresRepository, *, category: str, keep_connection_id: str
-) -> None:
+) -> list[str]:
     """Disable any OTHER active connection in (PLANT_ID, category) so the probe's connection can
-    take the single active slot. No-op when nothing else is active (idempotent on re-run)."""
+    take the single active slot. No-op when nothing else is active (idempotent on re-run).
+
+    Returns the connection_ids that were demoted so callers can rebind their aliases onto the
+    new active connection (G28/D13: MarAssetGateway resolves handles only on the active conn).
+    """
+    demoted: list[str] = []
     actives = await repo.list_connections(
         plant_id=PLANT_ID, category=category, status="active")
     for existing in actives:
         if existing.connection_id == keep_connection_id:
             continue
         await repo.upsert_connection(replace(existing, status="disabled"))
+        demoted.append(existing.connection_id)
         print(f"demoted {existing.connection_id} ({category}) active -> disabled")
+    return demoted
+
+
+async def _rebind_aliases(
+    repo: PostgresRepository, *, from_connection_id: str, to_connection_id: str
+) -> None:
+    """Copy active aliases from a demoted connection onto the new active one.
+
+    Idempotent: upsert_alias closes any prior row for (tenant, to_connection, external_id)
+    before inserting. Safe to re-run after stack:up.
+    """
+    now = datetime.now(timezone.utc)
+    for alias in await repo.list_active_aliases_for_connection(TENANT_ID, from_connection_id):
+        await repo.upsert_alias(AliasRow(
+            asset_id=alias.asset_id, tenant_id=alias.tenant_id,
+            connection_id=to_connection_id, external_id=alias.external_id,
+            valid_from=now, valid_to=None,
+            mapping_source="connection_rebind", confidence=alias.confidence,
+            is_primary=alias.is_primary, resolution_status=alias.resolution_status,
+            candidate_alternatives=alias.candidate_alternatives,
+            resolved_by=alias.resolved_by or "system",
+            vendor_path=alias.vendor_path, vendor_metadata=alias.vendor_metadata,
+            confirmed_by=alias.confirmed_by,
+            notes=f"rebound {from_connection_id} -> {to_connection_id}",
+        ))
+        print(f"rebound alias {alias.external_id!r} {from_connection_id} -> {to_connection_id}")
 
 
 async def main() -> None:
@@ -86,7 +125,7 @@ async def main() -> None:
         # Clear the (plant, category) active slot first so the partial unique index
         # uq_connection_active_category never trips when we upsert this row as active —
         # whether the colliding active came from the register defaults or a prior run.
-        await _demote_conflicting_actives(
+        demoted = await _demote_conflicting_actives(
             repo, category=category, keep_connection_id=connection_id)
         row = ConnectionRow(
             connection_id=connection_id,
@@ -101,6 +140,9 @@ async def main() -> None:
         )
         await repo.upsert_connection(row)
         print(f"seeded {connection_id} (active)")
+        for old_id in demoted:
+            await _rebind_aliases(
+                repo, from_connection_id=old_id, to_connection_id=connection_id)
 
 
 if __name__ == "__main__":

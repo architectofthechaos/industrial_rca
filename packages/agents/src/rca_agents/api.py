@@ -125,4 +125,15 @@ async def _default_client_factory() -> Any:
                                 data_converter=pydantic_data_converter)
 
 
-__all__ = ["create_app", "workflow_id_for"]
+def create_live_app() -> FastAPI:
+    """Live entrypoint: wire Postgres repos so plan/conclusion/run endpoints work."""
+    import os
+
+    from .deps import build_repos
+
+    use_pg = os.environ.get("PROBE_USE_POSTGRES", "1") == "1"
+    runs, memory, _evidence, conclusions = build_repos(use_postgres=use_pg)
+    return create_app(runs_repo=runs, memory_repo=memory, conclusion_repo=conclusions)
+
+
+__all__ = ["create_app", "create_live_app", "workflow_id_for"]

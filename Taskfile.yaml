@@ -208,7 +208,7 @@ tasks:
   api:probes:
     desc: Serve the Probe API (:8400, OpenAPI at /docs) — POST /probes/run starts an end-to-end probe; HITL via /probes/runs/{id}/hitl/*
     cmds:
-      - cd packages/agents && uv run uvicorn rca_agents.api:create_app --factory --port 8400
+      - cd packages/agents && uv run uvicorn rca_agents.api:create_live_app --factory --port 8400
 
   stack:up:
     desc: Bring up the FULL live stack — infra (pgvector+Neo4j+Temporal) + migrations + KG seed + simulators + refplant connections. Then run `task probe:worker`.
