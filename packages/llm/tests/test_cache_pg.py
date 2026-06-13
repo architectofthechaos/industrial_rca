@@ -2,13 +2,19 @@
 
 SAFETY: the llm test package is NOT covered by the mar conftest's DATABASE_URL redirect, so a
 bare ``PostgresResponseCache()`` would hit the LIVE ``rca_mar``. This test instead builds the
-cache with an explicit session_factory over the THROWAWAY ``test_rca_mar`` (created + migrated
-to head by ``_test_db`` below). The live store is never touched.
+cache with an explicit session_factory over the THROWAWAY ``test_rca_cache`` (created + migrated
+to head by ``test_db_url`` below). The live store is never touched.
+
+Isolation note: the DB name ``test_rca_cache`` is intentionally DISTINCT from the mar conftest's
+``test_rca_mar`` so running the mar suite and this suite in the same pytest session cannot cause
+cross-suite DROP interference.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
+from collections.abc import Generator
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -19,7 +25,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 pytestmark = pytest.mark.skipif(os.environ.get("RCA_DB") != "1",
                                 reason="requires Postgres (task infra:up)")
 
-TEST_DB_NAME = "test_rca_mar"
+TEST_DB_NAME = "test_rca_cache"
 MAR_DIR = Path(__file__).resolve().parents[2] / "mar"
 
 
@@ -29,18 +35,19 @@ def _with_db_path(url: str, db_name: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def test_db_url() -> str:
-    """Create + migrate a throwaway ``test_rca_mar`` to head (so the 0008 table exists), then
-    yield its URL. Admin DROP/CREATE run on the maintenance ``postgres`` DB; the live
-    ``rca_mar`` is never altered. Migration is the inherited-env alembic subprocess used by the
-    mar conftest, pointed at the test DB."""
+def test_db_url() -> Generator[str, None, None]:
+    """Create + migrate a throwaway ``test_rca_cache`` to head (so the response_cache table
+    exists), yield its URL, then DROP it on teardown.
+
+    Admin DROP/CREATE run against the maintenance ``postgres`` DB so the live ``rca_mar`` is
+    never altered. Migration uses the inherited-env alembic subprocess, pointed at the test DB
+    via DATABASE_URL.
+    """
     from rca_mar.config import database_url
 
-    live_url = database_url()  # default postgresql+asyncpg://rca:rca@127.0.0.1:5432/rca_mar
+    live_url = database_url()  # e.g. postgresql+asyncpg://rca:rca@127.0.0.1:5432/rca_mar
     admin_url = _with_db_path(live_url, "postgres")
     db_url = _with_db_path(live_url, TEST_DB_NAME)
-
-    import asyncio
 
     async def _recreate() -> None:
         engine = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
@@ -52,11 +59,26 @@ def test_db_url() -> str:
         finally:
             await engine.dispose()
 
+    async def _drop() -> None:
+        engine = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
+        try:
+            async with engine.connect() as conn:
+                # WITH (FORCE) terminates any remaining client connections before dropping
+                # (PG 13+). Required because async engines opened during tests may not be
+                # fully disposed by the time teardown runs.
+                await conn.execute(
+                    text(f"DROP DATABASE IF EXISTS {TEST_DB_NAME} WITH (FORCE)"))
+        finally:
+            await engine.dispose()
+
     asyncio.run(_recreate())
     env = dict(os.environ, DATABASE_URL=db_url)
     subprocess.run(["uv", "run", "alembic", "upgrade", "head"],
                    cwd=MAR_DIR, check=True, capture_output=True, text=True, env=env)
-    return db_url
+    try:
+        yield db_url
+    finally:
+        asyncio.run(_drop())
 
 
 async def test_pg_cache_roundtrip_across_instances(test_db_url: str) -> None:

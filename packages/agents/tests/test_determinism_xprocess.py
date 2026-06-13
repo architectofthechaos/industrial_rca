@@ -19,8 +19,12 @@ Two proofs here, both gated by ``RCA_DB=1``:
     slower; kept gated alongside the in-process proof. If PG is unreachable both skip.
 
 SAFETY: the agents test package is NOT covered by the mar conftest's DATABASE_URL redirect, so
-both proofs build the cache against the THROWAWAY ``test_rca_mar`` (created + migrated to head
+both proofs build the cache against the THROWAWAY ``test_rca_cache`` (created + migrated to head
 here), never the live ``rca_mar``.
+
+Isolation note: the DB name ``test_rca_cache`` is intentionally DISTINCT from the mar conftest's
+``test_rca_mar`` so running the mar suite and this suite in the same pytest session cannot cause
+cross-suite DROP interference.
 """
 from __future__ import annotations
 
@@ -29,6 +33,7 @@ import os
 import subprocess
 import sys
 import textwrap
+from collections.abc import Generator
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -39,7 +44,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 pytestmark = pytest.mark.skipif(os.environ.get("RCA_DB") != "1",
                                 reason="requires Postgres (task infra:up)")
 
-TEST_DB_NAME = "test_rca_mar"
+TEST_DB_NAME = "test_rca_cache"
 MAR_DIR = Path(__file__).resolve().parents[2] / "mar"
 
 _PROMPT = """---
@@ -65,9 +70,11 @@ def _with_db_path(url: str, db_name: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def test_db_url() -> str:
-    """Create + migrate a throwaway ``test_rca_mar`` to head; yield its URL. Live ``rca_mar``
-    is never altered (admin ops touch the maintenance ``postgres`` DB)."""
+def test_db_url() -> Generator[str, None, None]:
+    """Create + migrate a throwaway ``test_rca_cache`` to head; yield its URL; DROP on teardown.
+
+    Live ``rca_mar`` is never altered (admin ops touch the maintenance ``postgres`` DB).
+    """
     from rca_mar.config import database_url
 
     live_url = database_url()
@@ -83,11 +90,26 @@ def test_db_url() -> str:
         finally:
             await engine.dispose()
 
+    async def _drop() -> None:
+        engine = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
+        try:
+            async with engine.connect() as conn:
+                # WITH (FORCE) terminates any remaining client connections before dropping
+                # (PG 13+). Required because async engines opened during tests may not be
+                # fully disposed by the time teardown runs.
+                await conn.execute(
+                    text(f"DROP DATABASE IF EXISTS {TEST_DB_NAME} WITH (FORCE)"))
+        finally:
+            await engine.dispose()
+
     asyncio.run(_recreate())
     env = dict(os.environ, DATABASE_URL=db_url)
     subprocess.run(["uv", "run", "alembic", "upgrade", "head"],
                    cwd=MAR_DIR, check=True, capture_output=True, text=True, env=env)
-    return db_url
+    try:
+        yield db_url
+    finally:
+        asyncio.run(_drop())
 
 
 def _registry():
