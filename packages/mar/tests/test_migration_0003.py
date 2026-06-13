@@ -17,6 +17,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from rca_mar._safety import assert_test_database
 from rca_mar.config import database_url, make_engine, make_session_factory
 
 MAR_DIR = Path(__file__).resolve().parents[1]
@@ -70,6 +71,7 @@ async def _seed_0002_shape() -> None:
 
 
 async def _cleanup_seed() -> None:
+    assert_test_database(database_url())
     engine = make_engine()
     sf = make_session_factory(engine)
     async with sf() as s, s.begin():
@@ -82,6 +84,7 @@ async def _cleanup_seed() -> None:
 
 
 async def test_0003_synthesizes_connections_and_rekeys_aliases():
+    assert_test_database(database_url())
     try:
         # Rebuild a clean 0002-shape DB, then hand-seed the legacy rows.
         _alembic("downgrade", "base")

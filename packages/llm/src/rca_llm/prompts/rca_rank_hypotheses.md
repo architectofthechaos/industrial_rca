@@ -9,6 +9,7 @@ variables:
   - fishbone
   - five_whys
   - kg_valid_codes
+  - kg_valid_mechanisms
 output_schema:
   type: object
   additionalProperties: false
@@ -63,9 +64,12 @@ Rank the failure hypotheses: one primary plus up to two alternatives.
 Evidence Package: {{ evidence_package }}
 Fishbone: {{ fishbone }}
 5 Whys chain: {{ five_whys }}
-Valid ISO 14224 codes in the knowledge graph (failure modes + mechanisms): {{ kg_valid_codes }}
+Valid ISO 14224 failure-mode codes in the knowledge graph: {{ kg_valid_codes }}
+Valid ISO 14224 failure mechanisms for this equipment class (CAN_EXHIBIT → CAUSED_BY): {{ kg_valid_mechanisms }}
 
-Each hypothesis MUST use an ``iso14224_failure_mode`` and ``iso14224_mechanism`` drawn from
-the provided valid-codes list, cite supporting Evidence Package items, and carry a confidence
-in [0,1]. The primary hypothesis confidence must be ≥ every alternative's. Add recommended
-maintenance actions (with priority) and any open data requests (data to pull, not actions).
+Each hypothesis MUST set ``iso14224_failure_mode`` to a code from the valid-codes list AND
+``iso14224_mechanism`` to an id from the valid-mechanisms list — pick the MOST SPECIFIC mechanism
+the evidence supports. Use ``failure-mechanism:other`` only if no listed mechanism fits. Cite
+supporting Evidence Package items and carry a confidence in [0,1]; the primary hypothesis
+confidence must be ≥ every alternative's. Add recommended maintenance actions (with priority)
+and any open data requests (data to pull, not actions).

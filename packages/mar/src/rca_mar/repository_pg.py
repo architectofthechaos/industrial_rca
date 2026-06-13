@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from rca_contracts import AssetDescriptor
 
-from .models import Asset, AssetAlias, AssetAliasUnresolved, Connection
+from .models import Asset, AssetAlias, AssetAliasUnresolved, Connection, DocumentEmbedding
 from .repository import (
     AliasRow,
     ConnectionRow,
@@ -325,6 +325,45 @@ class PostgresRepository:
             q = select(func.count()).select_from(AssetAlias).where(
                 AssetAlias.connection_id == connection_id)
             return int((await s.execute(q)).scalar_one())
+
+    # ---- Document-embedding cache (Sprint 6 WI4) ----
+    async def upsert_document_embedding(self, *, content_hash, model, document_id, doc_type,
+                                        description, embedding, connection_id) -> None:
+        async with self._sf() as s, s.begin():
+            stmt = pg_insert(DocumentEmbedding).values(
+                content_hash=content_hash, model=model, document_id=document_id,
+                doc_type=doc_type, description=description, embedding=embedding,
+                connection_id=connection_id)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[DocumentEmbedding.content_hash, DocumentEmbedding.model],
+                set_={"embedding": stmt.excluded.embedding, "doc_type": stmt.excluded.doc_type,
+                      "description": stmt.excluded.description,
+                      "connection_id": stmt.excluded.connection_id,
+                      "document_id": stmt.excluded.document_id})
+            await s.execute(stmt)
+
+    async def search_document_embeddings(self, *, connection_id, query_embedding, top=5,
+                                         doc_types=None) -> list[dict]:
+        async with self._sf() as s:
+            # pgvector 0.4.x exposes `.cosine_distance(...)` (== `<=>`) on a Vector column;
+            # score = 1 - distance puts the closest doc first (highest score). The IVFFlat
+            # index (migration 0007) is unbuilt on a tiny corpus, so this falls back to an
+            # exact seqscan — still correct, just unindexed.
+            dist = DocumentEmbedding.embedding.cosine_distance(query_embedding)
+            q = (select(DocumentEmbedding.document_id, DocumentEmbedding.doc_type,
+                        DocumentEmbedding.description, dist.label("distance"))
+                 .where(DocumentEmbedding.connection_id == connection_id))
+            if doc_types:
+                q = q.where(DocumentEmbedding.doc_type.in_(doc_types))
+            q = q.order_by(dist).limit(top)
+            rows = (await s.execute(q)).all()
+            return [{"document_id": r.document_id, "doc_type": r.doc_type,
+                     "description": r.description, "score": 1.0 - float(r.distance)} for r in rows]
+
+    async def delete_document_embeddings_for_connection(self, connection_id) -> None:
+        async with self._sf() as s, s.begin():
+            await s.execute(delete(DocumentEmbedding).where(
+                DocumentEmbedding.connection_id == connection_id))
 
 
 __all__ = ["PostgresRepository"]

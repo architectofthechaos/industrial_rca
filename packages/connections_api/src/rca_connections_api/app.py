@@ -19,7 +19,7 @@ from rca_connector_sdk import EnvSecretResolver, SecretResolver
 
 from rca_mar.repository import AssetRepository
 
-from .connections_router import build_router
+from .connections_router import ActivationListener, build_router
 from .registry import Probe
 from .resolution_router import build_resolution_router
 
@@ -33,6 +33,8 @@ def create_app(
     *,
     secret_resolver: SecretResolver | None = None,
     probes: dict[str, Probe] | None = None,
+    activation_listener: ActivationListener | None = None,
+    deactivation_listener: ActivationListener | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> FastAPI:
     if repo is None:
@@ -41,7 +43,9 @@ def create_app(
 
     app = FastAPI(title="RCA Connections API", version="0.0.1")
     app.include_router(
-        build_router(repo=repo, secret_resolver=resolver, probes=probes))
+        build_router(repo=repo, secret_resolver=resolver, probes=probes,
+                     activation_listener=activation_listener,
+                     deactivation_listener=deactivation_listener))
     app.include_router(build_resolution_router(repo=repo, tenant_id=tenant_id))
     return app
 

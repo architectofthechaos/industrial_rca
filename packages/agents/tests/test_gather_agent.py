@@ -64,7 +64,7 @@ async def test_happy_path_assembles_full_evidence_package():
     assert pkg.coverage.cmms.status == "ok"
     assert pkg.tag_evidence.anomaly_method == "llm_v1"
     assert any(a.severity == "critical" for a in pkg.tag_evidence.anomalies)
-    assert pkg.document_evidence.score_method == "keyword_overlap"
+    assert pkg.document_evidence.score_method == "embedding_v1"
     # provenance carries connection_id for connector-backed sections (G5)
     assert any(p.connection_id for p in pkg.provenance if p.section == "tag")
     # plan execution notes recorded per step

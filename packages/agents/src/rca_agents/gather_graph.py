@@ -7,6 +7,7 @@ window). The workflow seeds the first leg's ``graph_state`` with the finalized p
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 from rca_contracts import (
@@ -36,6 +37,8 @@ from rca_contracts import (
 
 from .base import LegContext, det_uuid
 from .toolbox import STEP_TYPE_TO_TOOL  # noqa: F401  (documents the G14 mapping used below)
+
+logger = logging.getLogger(__name__)
 
 
 class GatherAgent:
@@ -139,13 +142,20 @@ class GatherAgent:
                 "cannot materialize the KG asset layer")
         investigated = [c.iso14224_code for c in plan.candidate_failure_modes[:3]]
 
+        # D14: source applicable modes from kg.list_failure_modes_for_class — a SEPARATE call
+        # because kg.get_asset_context (above) omits the CAUSED_BY mechanisms. An empty result is
+        # expected only at KG cold-start; we degrade to the bare context modes (mechanism vocab
+        # absent from this package) rather than fail the gather leg.
+        modes_with_mech = await ctx.toolbox.failure_modes_for_class(equipment_class)
+        applicable = modes_with_mech or context.get("applicable_failure_modes", [])
+
         # materialize_kg — lazy Asset upsert + per-mode CAN_EXHIBIT links
         asset_meta = context.get("asset") or {}
         await ctx.toolbox.upsert_asset(
             canonical_id=cid, name=asset_meta.get("name", cid.split(":")[-1].upper()),
             iso14224_class=equipment_class, confidence=0.95, method="register",
             reference_time=ctx.reference_time)
-        valid_codes = {m["code"] for m in context.get("applicable_failure_modes", [])}
+        valid_codes = {m["code"] for m in applicable}
         for code in investigated:
             if code in valid_codes:
                 await ctx.toolbox.link_failure_mode(canonical_id=cid, failure_mode_code=code)
@@ -153,7 +163,10 @@ class GatherAgent:
         anomalies, anomaly_method, a_usage, a_ids = await self._detect_anomalies(ctx, raw["tags"])
         usage = usage.merged_with(a_usage)
         llm_ids += a_ids
-        scored_docs, score_method = self._score_documents(raw["documents"], plan)
+        doc_conn = next((p.connection_id for p in provenance
+                         if p.tool_name == "document.search_for_asset"), None)
+        scored_docs, score_method = await self._score_documents(
+            raw["documents"], plan, ctx, doc_conn)
 
         pkg = EvidencePackage(
             evidence_package_id=det_uuid(ctx.probe_run_id, "evidence"),
@@ -164,7 +177,7 @@ class GatherAgent:
             location=self._location(cid, asset_meta),
             iso14224_context=ISO14224Context(
                 equipment_class=equipment_class,
-                applicable_failure_modes=context.get("applicable_failure_modes", [])),
+                applicable_failure_modes=applicable),
             tag_evidence=TagEvidence(tags=raw["tags"], anomalies=anomalies,
                                      anomaly_method=anomaly_method),
             work_order_evidence=WorkOrderEvidence(work_orders=raw["work_orders"]),
@@ -212,7 +225,7 @@ class GatherAgent:
         return out
 
     @staticmethod
-    def _score_documents(
+    def _score_documents_keyword(
         docs: list[dict], plan: InvestigationPlan,
     ) -> tuple[list[ScoredDocument], Literal["embedding_v1", "keyword_overlap"]]:
         terms = set()
@@ -229,6 +242,40 @@ class GatherAgent:
                                          excerpt=d.get("excerpt")))
         scored.sort(key=lambda s: s.score, reverse=True)
         return scored, "keyword_overlap"
+
+    async def _score_documents(
+        self, docs: list[dict], plan: InvestigationPlan, ctx: Any, connection_id: str | None,
+    ) -> tuple[list[ScoredDocument], Literal["embedding_v1", "keyword_overlap"]]:
+        if connection_id and docs:
+            try:
+                query = (
+                    " ".join(c.name for c in plan.candidate_failure_modes)
+                    or "failure mechanism"
+                )
+                qvec = (await ctx.llm.embed(query, correlation_id=ctx.correlation_id))[0]
+                by_id = {d["document_id"]: d for d in docs}
+                hits = await ctx.toolbox.search_documents_by_vector(
+                    connection_id=connection_id, query_embedding=qvec,
+                    doc_types=["datasheet", "rca_report"], top=max(len(docs), 5))
+                # Vector search is scoped by connection (connector), not asset, so it can return
+                # documents embedded for OTHER assets on the same source. Keep only hits among the
+                # docs gathered for THIS asset — avoids ranking a blank-title phantom.
+                hits = [h for h in hits if h["document_id"] in by_id]
+                if hits:
+                    scored = [
+                        ScoredDocument(
+                            document_id=h["document_id"],
+                            title=by_id[h["document_id"]].get("title", ""),
+                            doc_type=h.get("doc_type") or by_id[h["document_id"]].get("doc_type"),
+                            score=round(float(h["score"]), 4),
+                            excerpt=by_id[h["document_id"]].get("excerpt"))
+                        for h in hits
+                    ]
+                    return scored, "embedding_v1"
+            except Exception as exc:  # noqa: BLE001 — semantic path is best-effort; fall back
+                logger.warning(
+                    "semantic document scoring failed (%s); falling back to keyword_overlap", exc)
+        return self._score_documents_keyword(docs, plan)
 
     @staticmethod
     def _asset_summary(cid: str, meta: dict, equipment_class: str) -> AssetSummary:

@@ -21,6 +21,7 @@ from pydantic import AwareDatetime, BaseModel
 from rca_connector_sdk import NotFound, build_server, map_source_error, ok_response
 from rca_contracts import (
     AssetDescriptor,
+    DocumentEmbeddingHit,
     ResolveAssetOutput,
     ToolError,
     ToolResponse,
@@ -53,6 +54,13 @@ class SearchRequest(BaseModel):
     criticality: list[str] | None = None
     service: str | None = None
     limit: int = 50
+
+
+class SearchEmbeddingsRequest(BaseModel):
+    connection_id: str
+    query_embedding: list[float]
+    top: int = 5
+    doc_types: list[str] | None = None
 
 
 def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
@@ -126,7 +134,26 @@ def make_mar_mcp(*, repo: AssetRepository, tenant_id: UUID,
         except Exception as exc:  # noqa: BLE001
             return envelope.fail(map_source_error(exc))
 
+    @mcp.tool(name="document_embedding.search")
+    async def search_document_embeddings(
+            request: SearchEmbeddingsRequest) -> ToolResponse[list[DocumentEmbeddingHit]]:
+        envelope = ToolResponse[list[DocumentEmbeddingHit]]
+        try:
+            rows = await repo.search_document_embeddings(
+                connection_id=request.connection_id, query_embedding=request.query_embedding,
+                top=request.top, doc_types=request.doc_types)
+            hits = [DocumentEmbeddingHit(**r) for r in rows]
+            return ok_response(hits, tool="document_embedding.search", version=_VERSION,
+                               source=_SOURCE,
+                               source_query=(f"embedding_search {request.connection_id}"
+                                             f" top={request.top} doc_types={request.doc_types}"),
+                               record_count=len(hits),
+                               raw_tags=[h.document_id for h in hits])
+        except Exception as exc:  # noqa: BLE001
+            return envelope.fail(map_source_error(exc))
+
     return mcp
 
 
-__all__ = ["make_mar_mcp", "ResolveRequest", "GetRequest", "SearchRequest"]
+__all__ = ["make_mar_mcp", "ResolveRequest", "GetRequest", "SearchRequest",
+           "SearchEmbeddingsRequest"]

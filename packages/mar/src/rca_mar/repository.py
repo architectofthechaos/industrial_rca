@@ -141,6 +141,15 @@ class AssetRepository(Protocol):
                                status: str | None = None) -> list[ConnectionRow]: ...
     async def delete_connection(self, connection_id: str) -> None: ...
     async def count_aliases_for_connection(self, connection_id: str) -> int: ...
+    # Document-embedding cache (Sprint 6 WI4): content-addressed upsert, cosine search,
+    # connection-scoped invalidation. The gather leg retrieves docs by query embedding.
+    async def upsert_document_embedding(self, *, content_hash: str, model: str, document_id: str,
+                                        doc_type: str | None, description: str | None,
+                                        embedding: list[float], connection_id: str) -> None: ...
+    async def search_document_embeddings(self, *, connection_id: str,
+                                         query_embedding: list[float], top: int = 5,
+                                         doc_types: list[str] | None = None) -> list[dict]: ...
+    async def delete_document_embeddings_for_connection(self, connection_id: str) -> None: ...
 
 
 def _like_to_regex(pattern: str) -> re.Pattern[str]:
@@ -178,6 +187,10 @@ class InMemoryRepository:
         # idempotency test asserts a no-change re-run leaves it untouched (the zero-row-write
         # guarantee — the activity must skip the write entirely, not write the same value back).
         self.write_count = 0
+        # Document-embedding cache (Sprint 6 WI4). Each row mirrors the document_embeddings
+        # table; keyed for upsert by (content_hash, model). Python cosine keeps the hermetic
+        # MCP-server test DB-free.
+        self._doc_embeddings: list[dict[str, Any]] = []
 
     async def upsert_asset(self, asset: AssetDescriptor) -> None:
         self.write_count += 1
@@ -400,6 +413,42 @@ class InMemoryRepository:
 
     async def count_aliases_for_connection(self, connection_id: str) -> int:
         return sum(1 for a in self.aliases if a.connection_id == connection_id)
+
+    # ---- Document-embedding cache (Sprint 6 WI4) ----
+    async def upsert_document_embedding(self, *, content_hash, model, document_id, doc_type,
+                                        description, embedding, connection_id) -> None:
+        row = {"content_hash": content_hash, "model": model, "document_id": document_id,
+               "doc_type": doc_type, "description": description, "embedding": list(embedding),
+               "connection_id": connection_id}
+        for i, r in enumerate(self._doc_embeddings):
+            if r["content_hash"] == content_hash and r["model"] == model:
+                self._doc_embeddings[i] = row  # upsert by (content_hash, model)
+                return
+        self._doc_embeddings.append(row)
+
+    async def search_document_embeddings(self, *, connection_id, query_embedding, top=5,
+                                         doc_types=None) -> list[dict]:
+        qnorm = sum(x * x for x in query_embedding) ** 0.5
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for r in self._doc_embeddings:
+            if r["connection_id"] != connection_id:
+                continue
+            if doc_types and r["doc_type"] not in doc_types:
+                continue
+            v = r["embedding"]
+            vnorm = sum(x * x for x in v) ** 0.5
+            denom = qnorm * vnorm
+            # zero-norm guard: an all-zero embedding has no direction -> cosine undefined; score 0.
+            cosine = (sum(a * b for a, b in zip(query_embedding, v)) / denom) if denom else 0.0
+            scored.append((cosine, r))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        return [{"document_id": r["document_id"], "doc_type": r["doc_type"],
+                 "description": r["description"], "score": score}
+                for score, r in scored[:top]]
+
+    async def delete_document_embeddings_for_connection(self, connection_id) -> None:
+        self._doc_embeddings = [r for r in self._doc_embeddings
+                                if r["connection_id"] != connection_id]
 
 
 __all__ = ["AssetRepository", "AliasRow", "ConnectionRow", "DuplicateActiveConnection",

@@ -181,15 +181,19 @@ class RcaAgent:
     async def _rank_validate_propose(self, state, ctx: LegContext, pkg: EvidencePackage,
                                      messages, usage, llm_ids) -> AgentLegResult:
         valid_codes = sorted({m["code"] for m in pkg.iso14224_context.applicable_failure_modes})
+        valid_mechanisms = sorted({mech["id"]
+                                   for m in pkg.iso14224_context.applicable_failure_modes
+                                   for mech in m.get("mechanisms", []) if mech.get("id")})
         resp = await ctx.llm.complete(
             "rca_rank_hypotheses", "v1",
             {"evidence_package": pkg.model_dump(mode="json"), "fishbone": state["fishbone"],
-             "five_whys": state["five_whys"], "kg_valid_codes": valid_codes},
+             "five_whys": state["five_whys"], "kg_valid_codes": valid_codes,
+             "kg_valid_mechanisms": valid_mechanisms},
             correlation_id=ctx.correlation_id, probe_run_id=ctx.probe_run_id,
             budget=ctx.budget, replay_from_cache=ctx.replay_from_cache)
         usage = usage.merged_with(_usage(resp))
         llm_ids = llm_ids + [resp.llm_call_id]
-        conclusion = self._build_conclusion(state, ctx, pkg, resp.structured or {})
+        conclusion = self._build_conclusion(state, ctx, pkg, resp.structured or {}, valid_mechanisms)
         conclusion = self._validate(conclusion, pkg, valid_codes)
         state["conclusion"] = conclusion.model_dump(mode="json")
         messages.append(Message(role="assistant", content="proposing RCA conclusion"))
@@ -245,10 +249,12 @@ class RcaAgent:
 
     # ---- builders / validation -------------------------------------------------
     def _build_conclusion(self, state, ctx: LegContext, pkg: EvidencePackage,
-                          ranked: dict) -> RcaConclusion:
+                          ranked: dict,
+                          valid_mechanisms: list[str] | None = None) -> RcaConclusion:
         regen = int(state.get("regen_count", 0))
-        primary = self._hyp(ranked.get("primary_hypothesis", {}), rank=1)
-        alts = [self._hyp(h, rank=i + 2)
+        vocab = frozenset(valid_mechanisms) if valid_mechanisms else None  # hash once, not per-hyp
+        primary = self._hyp(ranked.get("primary_hypothesis", {}), rank=1, valid_mechanisms=vocab)
+        alts = [self._hyp(h, rank=i + 2, valid_mechanisms=vocab)
                 for i, h in enumerate(ranked.get("alternative_hypotheses", []))]
         fishbone = [FishboneCategory(
             category=_one_of(c.get("category") or c.get("name"), _FISHBONE_CATS, "Method"),
@@ -300,10 +306,14 @@ class RcaAgent:
         return c.model_copy(update={"validation_errors": errors})
 
     @staticmethod
-    def _hyp(h: dict, *, rank: int) -> RankedHypothesis:
+    def _hyp(h: dict, *, rank: int,
+             valid_mechanisms: frozenset[str] | None = None) -> RankedHypothesis:
+        mech = h.get("iso14224_mechanism", "failure-mechanism:other")
+        if valid_mechanisms and mech not in valid_mechanisms:
+            mech = "failure-mechanism:other"
         return RankedHypothesis(
             rank=rank, iso14224_failure_mode=h.get("iso14224_failure_mode", "UNK"),
-            iso14224_mechanism=h.get("iso14224_mechanism", "failure-mechanism:other"),
+            iso14224_mechanism=mech,
             iso14224_cause=h.get("iso14224_cause"), confidence=float(h.get("confidence", 0.5)),
             narrative=h.get("narrative", ""),
             supporting_evidence=[_cite(e) for e in h.get("supporting_evidence", [])])

@@ -79,6 +79,24 @@ def stub_host() -> FastMCP:
         return _ok({"canonical_id": request["canonical_id"],
                     "failure_mode_code": request["failure_mode_code"], "linked": True})
 
+    @host.tool(name="kg.list_failure_modes_for_class")
+    async def list_fms(request: dict):
+        return _ok([
+            {"code": "ELP", "id": "failure-mode:elp",
+             "name": "External leakage process medium", "description": "",
+             "iso14224_ref": "B.3",
+             "mechanisms": [
+                 {"id": "failure-mechanism:seal-failure", "name": "Seal failure"},
+                 {"id": "failure-mechanism:corrosion", "name": "Corrosion"},
+             ]},
+            {"code": "VIB", "id": "failure-mode:vib",
+             "name": "Vibration", "description": "",
+             "iso14224_ref": "B.4",
+             "mechanisms": [
+                 {"id": "failure-mechanism:cavitation", "name": "Cavitation"},
+             ]},
+        ])
+
     return host
 
 
@@ -92,9 +110,11 @@ _PROTOCOL_METHODS = {
     "search_assets",
     "asset_summary",
     "get_asset_context",
+    "failure_modes_for_class",
     "tag_history",
     "work_orders_for_asset",
     "documents_for_asset",
+    "search_documents_by_vector",
     "operator_logs_for_asset",
     "upsert_asset",
     "link_failure_mode",
@@ -144,3 +164,13 @@ async def test_work_orders_and_documents_passthrough(tb):
     assert wos[0]["work_order_id"] == "WO-50012402" and p1.connection_id
     docs, p2 = await tb.documents_for_asset(CID, "seal leak")
     assert docs[0]["document_id"] == "RCA-2025-014" and p2.connection_id
+
+
+async def test_failure_modes_for_class_wire_path(tb):
+    modes = await tb.failure_modes_for_class("equipment-class:bb1")
+    assert len(modes) == 2
+    elp = next(m for m in modes if m["code"] == "ELP")
+    assert elp["id"] == "failure-mode:elp"
+    assert elp["name"] == "External leakage process medium"
+    mech_ids = [mech["id"] for mech in elp["mechanisms"]]
+    assert "failure-mechanism:seal-failure" in mech_ids

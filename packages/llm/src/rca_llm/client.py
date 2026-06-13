@@ -22,6 +22,7 @@ from rca_contracts import LLMResponse, TokenBudget, TokenBudgetExceeded
 
 from .audit import AuditSink, LlmCallRecord, NullAuditSink
 from .cache import InMemoryResponseCache, ResponseCache, prompt_hash
+from .embedding_config import embedding_model
 from .registry import Prompt, PromptRegistry, default_registry
 
 
@@ -69,7 +70,7 @@ class LLMClient(Protocol):
     ) -> LLMResponse: ...
 
     async def embed(
-        self, text: str | list[str], *, model: str = "voyage-3", correlation_id: str,
+        self, text: str | list[str], *, model: str | None = None, correlation_id: str,
     ) -> list[list[float]]: ...
 
 
@@ -189,10 +190,10 @@ class LLMClientImpl:
             created_at=self._now()))
 
     async def embed(
-        self, text: str | list[str], *, model: str = "voyage-3", correlation_id: str,
+        self, text: str | list[str], *, model: str | None = None, correlation_id: str,
     ) -> list[list[float]]:
         texts = [text] if isinstance(text, str) else list(text)
-        return await self._embeddings.embed(model=model, texts=texts)
+        return await self._embeddings.embed(model=model or embedding_model(), texts=texts)
 
 
 __all__ = [

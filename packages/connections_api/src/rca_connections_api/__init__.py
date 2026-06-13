@@ -5,6 +5,7 @@ test it against its real ``test_connection`` MCP tool, and walk it through the l
 state machine (pending -> active, with one active source per (plant, category)).
 """
 from .app import create_app
+from .connections_router import ActivationListener
 from .registry import CONNECTOR_PROBES, probe_for
 from .state_machine import (
     InvalidTransition,
@@ -17,6 +18,7 @@ __version__ = "0.0.1"
 __all__ = [
     "__version__",
     "create_app",
+    "ActivationListener",
     "CONNECTOR_PROBES", "probe_for",
     "InvalidTransition", "assert_transition", "assert_patch_transition",
 ]

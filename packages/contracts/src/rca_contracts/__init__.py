@@ -9,7 +9,7 @@ from .agent_io import LLMResponse, TokenBudget, TokenBudgetExceeded, TokenUsage
 from .asset import AssetDescriptor, Criticality, ResolveAssetOutput, ResolveStatus
 from .alarm import Alarm
 from .canonical import CanonicalParts, parse_canonical_id
-from .document import DocType, DocumentRef
+from .document import DocType, DocumentEmbeddingHit, DocumentRef
 from .enums import HistorianMode, PressureReference, Quality
 from .evidence import (
     AssetSummary,
@@ -66,7 +66,7 @@ __all__ = [
     "TimeBasis", "TagDescriptor",
     "CanonicalParts", "parse_canonical_id",
     "Measurement", "MeasurementSeries",
-    "Alarm", "WorkOrder", "DocumentRef", "DocType",
+    "Alarm", "WorkOrder", "DocumentRef", "DocType", "DocumentEmbeddingHit",
     "AssetDescriptor", "Criticality", "ResolveAssetOutput", "ResolveStatus",
     "Provenance",
     "ToolError", "ToolErrorCode",

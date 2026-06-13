@@ -39,12 +39,17 @@ class ToolBox(Protocol):
     async def asset_summary(self, canonical_id: str) -> dict | None: ...
     async def get_asset_context(self, canonical_id: str,
                                 iso14224_class: str | None = None) -> dict: ...
+    async def failure_modes_for_class(self, equipment_class_id: str) -> list[dict]: ...
     async def tag_history(self, canonical_id: str, *, reference_time: datetime,
                           lookback_hours: int) -> tuple[list[dict], ProvenanceEntry]: ...
     async def work_orders_for_asset(
         self, canonical_id: str) -> tuple[list[dict], ProvenanceEntry]: ...
     async def documents_for_asset(
         self, canonical_id: str, query: str) -> tuple[list[dict], ProvenanceEntry]: ...
+    async def search_documents_by_vector(self, *, connection_id: str,
+                                         query_embedding: list[float],
+                                         doc_types: list[str] | None = None,
+                                         top: int = 5) -> list[dict]: ...
     async def operator_logs_for_asset(
         self, canonical_id: str, *, reference_time: datetime,
         lookback_hours: int) -> tuple[list[dict], ProvenanceEntry]: ...
@@ -107,10 +112,26 @@ class FakeToolBox:
             "operator_log": "refinery-gc.operator_log.pi-main",
         },
         # which KG failure modes this class can exhibit (codes that VALIDATE in the ontology)
+        # mechanisms = real CAUSED_BY rels from packages/kg/seed/iso14224_bb1.cypher (D14)
         "applicable_failure_modes": [
-            {"code": "ELP", "id": "failure-mode:elp", "name": "External leakage process medium"},
-            {"code": "VIB", "id": "failure-mode:vib", "name": "Vibration"},
-            {"code": "OHE", "id": "failure-mode:ohe", "name": "Overheating"},
+            {"code": "ELP", "id": "failure-mode:elp", "name": "External leakage process medium",
+             "mechanisms": [
+                 {"id": "failure-mechanism:seal-failure", "name": "Seal failure"},
+                 {"id": "failure-mechanism:corrosion", "name": "Corrosion"},
+                 {"id": "failure-mechanism:wear", "name": "Wear"}]},
+            {"code": "VIB", "id": "failure-mode:vib", "name": "Vibration",
+             "mechanisms": [
+                 {"id": "failure-mechanism:cavitation", "name": "Cavitation"},
+                 {"id": "failure-mechanism:misalignment", "name": "Misalignment"},
+                 {"id": "failure-mechanism:imbalance", "name": "Imbalance"},
+                 {"id": "failure-mechanism:bearing-wear", "name": "Bearing wear"},
+                 {"id": "failure-mechanism:looseness", "name": "Looseness"}]},
+            {"code": "OHE", "id": "failure-mode:ohe", "name": "Overheating",
+             "mechanisms": [
+                 {"id": "failure-mechanism:lubrication-failure", "name": "Lubrication failure"},
+                 {"id": "failure-mechanism:bearing-wear", "name": "Bearing wear"},
+                 {"id": "failure-mechanism:overheating", "name": "Overheating"},
+                 {"id": "failure-mechanism:fouling", "name": "Fouling"}]},
         ],
     }
 
@@ -167,6 +188,31 @@ class FakeToolBox:
                      self.fixture["connection_ids"]["document"], len(docs), self._now())
         return docs, prov
 
+    async def search_documents_by_vector(self, *, connection_id: str,
+                                         query_embedding: list[float],
+                                         doc_types: list[str] | None = None,
+                                         top: int = 5) -> list[dict]:
+        # Demonstrate the SEMANTIC WIN: the prior RCA (rca_report) ranks above the datasheet
+        # because its embedding is closest to the failure-mode query — the opposite of what
+        # keyword overlap produces (the datasheet matches more failure-mode keyword terms).
+        docs = self.fixture["documents"]
+        by_id = {d["document_id"]: d for d in docs}
+        hits = [
+            {"document_id": "RCA-2025-014", "doc_type": "rca_report",
+             "description": "prior seal-leak RCA", "score": 0.95},
+            {"document_id": "P-101A-DS", "doc_type": "datasheet",
+             "description": "pump datasheet", "score": 0.55},
+        ]
+        # Filter to only hits whose document_id actually exists in the fixture and match doc_types
+        result = []
+        for h in hits:
+            if h["document_id"] not in by_id:
+                continue
+            if doc_types and h["doc_type"] not in doc_types:
+                continue
+            result.append(h)
+        return result[:top]
+
     async def operator_logs_for_asset(
         self, canonical_id: str, *, reference_time: datetime,
         lookback_hours: int) -> tuple[list[dict], ProvenanceEntry]:
@@ -188,6 +234,9 @@ class FakeToolBox:
             return False
         self.linked_modes.append(pair)
         return True
+
+    async def failure_modes_for_class(self, equipment_class_id: str) -> list[dict]:
+        return list(self.fixture["applicable_failure_modes"])
 
 
 __all__ = ["ToolBox", "FakeToolBox", "STEP_TYPE_TO_TOOL", "ProvenanceEntry"]

@@ -5,7 +5,7 @@ provenance stamping, unit/time normalization, retry/circuit-breaker, error
 mapping, cost accounting) so connectors only implement source fetch + translate.
 Must never import `rca_simulator` (ADR-0012).
 """
-from .assets import AssetGateway, CanonicalSlugAssetGateway, StaticAssetGateway
+from .assets import AssetGateway, CanonicalSlugAssetGateway, MarAssetGateway, StaticAssetGateway
 from .context import RawPoint, ToolConfig, ToolContext, ToolDeps
 from .errors import (
     ConnectorError,
@@ -85,7 +85,7 @@ __all__ = [
     "ConnectionInfo", "ConnectionRouter", "StaticConnectionRouter", "RegistryConnectionRouter",
     "NoActiveConnection",
     # asset gateway (canonical_id -> vendor tag / source handle)
-    "AssetGateway", "CanonicalSlugAssetGateway", "StaticAssetGateway",
+    "AssetGateway", "CanonicalSlugAssetGateway", "MarAssetGateway", "StaticAssetGateway",
     # secret refs
     "SecretRef", "SecretResolver", "EnvSecretResolver", "UnsupportedSecretScheme",
     # streaming primitives

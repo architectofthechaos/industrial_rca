@@ -15,6 +15,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from pgvector.sqlalchemy import Vector
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -317,14 +319,32 @@ class LlmCall(Base):
 class DocumentEmbedding(Base):
     """Content-addressed document embedding cache (§4.1 score_documents).
 
-    NOTE: ``embedding`` is JSONB here (portable on any Postgres). The pgvector extension + a
-    native ``vector`` column is provisioned by migration 0005 for future similarity search but
-    is not yet used by the (keyword-overlap) prototype scorer."""
+    NOTE: ``embedding`` is a native pgvector ``vector`` column (provisioned by migration 0007,
+    D16/D17) used for cosine ANN similarity search."""
 
     __tablename__ = "document_embeddings"
     content_hash: Mapped[str] = mapped_column(Text, primary_key=True)
     model: Mapped[str] = mapped_column(Text, primary_key=True)
     document_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    embedding: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # D15: width fixed to the default embedding model's dim (voyage-3 = 1024); keep in sync with
+    # migration 0007. rca_mar must not import rca_llm, so this is hardcoded.
+    embedding: Mapped[list | None] = mapped_column(Vector(1024), nullable=True)
+    doc_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connection_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
+class ResponseCacheRow(Base):
+    """Content-addressed LLM response cache for cross-process determinism replay (Sprint 6 WI5).
+
+    Keyed by ``prompt_hash`` (SHA-256 of the rendered prompt). ``payload`` is the LLM client's
+    cached value dict (``content``/``structured``/``model``/``model_version``/``input_tokens``/
+    ``output_tokens``). Provisioned by migration 0008."""
+
+    __tablename__ = "response_cache"
+    prompt_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow)
