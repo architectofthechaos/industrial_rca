@@ -7,6 +7,7 @@ window). The workflow seeds the first leg's ``graph_state`` with the finalized p
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 from rca_contracts import (
@@ -36,6 +37,8 @@ from rca_contracts import (
 
 from .base import LegContext, det_uuid
 from .toolbox import STEP_TYPE_TO_TOOL  # noqa: F401  (documents the G14 mapping used below)
+
+logger = logging.getLogger(__name__)
 
 
 class GatherAgent:
@@ -250,24 +253,28 @@ class GatherAgent:
                     or "failure mechanism"
                 )
                 qvec = (await ctx.llm.embed(query, correlation_id=ctx.correlation_id))[0]
+                by_id = {d["document_id"]: d for d in docs}
                 hits = await ctx.toolbox.search_documents_by_vector(
                     connection_id=connection_id, query_embedding=qvec,
                     doc_types=["datasheet", "rca_report"], top=max(len(docs), 5))
+                # Vector search is scoped by connection (connector), not asset, so it can return
+                # documents embedded for OTHER assets on the same source. Keep only hits among the
+                # docs gathered for THIS asset — avoids ranking a blank-title phantom.
+                hits = [h for h in hits if h["document_id"] in by_id]
                 if hits:
-                    by_id = {d["document_id"]: d for d in docs}
                     scored = [
                         ScoredDocument(
                             document_id=h["document_id"],
-                            title=by_id.get(h["document_id"], {}).get("title", ""),
-                            doc_type=h.get("doc_type") or by_id.get(
-                                h["document_id"], {}).get("doc_type"),
+                            title=by_id[h["document_id"]].get("title", ""),
+                            doc_type=h.get("doc_type") or by_id[h["document_id"]].get("doc_type"),
                             score=round(float(h["score"]), 4),
-                            excerpt=by_id.get(h["document_id"], {}).get("excerpt"))
+                            excerpt=by_id[h["document_id"]].get("excerpt"))
                         for h in hits
                     ]
                     return scored, "embedding_v1"
-            except Exception:  # noqa: BLE001 — semantic path is best-effort; fall back to keyword
-                pass
+            except Exception as exc:  # noqa: BLE001 — semantic path is best-effort; fall back
+                logger.warning(
+                    "semantic document scoring failed (%s); falling back to keyword_overlap", exc)
         return self._score_documents_keyword(docs, plan)
 
     @staticmethod
