@@ -52,12 +52,17 @@ async def _live_asset_count() -> int:
 async def test_destructive_migration_test_does_not_touch_live_store():
     before = await _live_asset_count()
 
-    # Run the destructive migration test in a subprocess. It inherits this process's env, where
-    # the package conftest's session-autouse fixture has set DATABASE_URL=.../test_rca_mar, so
-    # the downgrade/DELETE/rebuild all land on the throwaway DB.
+    # Run the destructive migration test in a subprocess. The child starts its OWN pytest session
+    # which reloads the mar conftest, whose session-scoped fixtures CREATE the throwaway DB on
+    # setup and DROP it on teardown. If the child used the same name as the parent
+    # (``test_rca_mar``), its teardown DROP would destroy the parent session's shared DB mid-run.
+    # So point the child at a DISTINCT throwaway DB via MAR_TEST_DB; the child's conftest computes
+    # its test URL from that name and resets DATABASE_URL itself before any DB-touching test runs.
+    # The downgrade/DELETE/rebuild all land on the child's own ``test_rca_mar_subproc``.
+    env = {**os.environ, "MAR_TEST_DB": "test_rca_mar_subproc"}
     subprocess.run(
         ["uv", "run", "pytest", "packages/mar/tests/test_migration_0003.py", "-q"],
-        cwd=REPO_ROOT, check=True)
+        cwd=REPO_ROOT, check=True, env=env)
 
     after = await _live_asset_count()
     assert after == before, (

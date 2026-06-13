@@ -31,7 +31,11 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from rca_mar.config import database_url
 
 MAR_DIR = Path(__file__).resolve().parents[1]
-TEST_DB_NAME = "test_rca_mar"
+# Throwaway-DB name is env-overridable so a child pytest session (e.g. the subprocess spawned by
+# test_live_store_untouched) can use a DISTINCT throwaway DB. Otherwise the child's session-scoped
+# create/DROP lifecycle would destroy the PARENT session's shared test_rca_mar mid-run. The name
+# still begins with ``test_`` so the destructive-op guard in test_migration_0003 stays satisfied.
+TEST_DB_NAME = os.environ.get("MAR_TEST_DB", "test_rca_mar")
 
 
 def _pg_reachable() -> bool:
