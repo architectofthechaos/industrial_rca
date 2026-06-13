@@ -64,6 +64,20 @@ def llm_summarizer(llm: Any) -> Callable[[str], Awaitable[str]]:
     return _summarize
 
 
+def make_document_embedding_invalidator(store: Any) -> ActivationListener:
+    """Return an ActivationListener that DELETES a document connection's embeddings on disconnect.
+
+    Non-document categories are a no-op. ``store`` is the MAR repo (has
+    delete_document_embeddings_for_connection).
+    """
+    async def _listener(row: Any) -> None:
+        if getattr(row, "category", None) != "document":
+            return
+        await store.delete_document_embeddings_for_connection(row.connection_id)
+
+    return _listener
+
+
 def build_document_embedding_listener(
     *, doc_client: Any, llm: Any, repo: Any,
     embed_transport: Any = None, model: str | None = None,
@@ -90,6 +104,7 @@ def build_document_embedding_listener(
 
 __all__ = [
     "make_document_embedding_listener",
+    "make_document_embedding_invalidator",
     "llm_summarizer",
     "build_document_embedding_listener",
 ]

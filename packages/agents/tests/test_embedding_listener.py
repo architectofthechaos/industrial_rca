@@ -15,6 +15,7 @@ from rca_llm.testing import HashEmbeddingTransport
 from rca_agents.embedding_listener import (
     build_document_embedding_listener,
     llm_summarizer,
+    make_document_embedding_invalidator,
     make_document_embedding_listener,
 )
 
@@ -165,3 +166,62 @@ async def test_build_listener_requires_embed_transport():
     with pytest.raises(ValueError, match="embed_transport"):
         build_document_embedding_listener(
             doc_client=_StubDocClient(), llm=_FakeLLM(_Resp()), repo=_Store())
+
+
+# ------------------------------------------------------------------ invalidator
+
+
+class _FakeStore:
+    """Records delete_document_embeddings_for_connection calls."""
+
+    def __init__(self):
+        self.deleted: list[str] = []
+
+    async def delete_document_embeddings_for_connection(self, connection_id: str) -> None:
+        self.deleted.append(connection_id)
+
+
+async def test_invalidator_document_row_deletes_embeddings():
+    """A document row triggers delete_document_embeddings_for_connection with correct id."""
+    store = _FakeStore()
+    invalidator = make_document_embedding_invalidator(store)
+    await invalidator(_Row(connection_id="conn-doc", category="document"))
+    assert store.deleted == ["conn-doc"]
+
+
+@pytest.mark.parametrize("category", ["historian", "cmms", "operator_log", "asset"])
+async def test_invalidator_non_document_row_is_noop(category):
+    """Non-document categories must NOT trigger a delete call."""
+    store = _FakeStore()
+    invalidator = make_document_embedding_invalidator(store)
+    await invalidator(_Row(category=category))
+    assert store.deleted == []
+
+
+async def test_invalidator_round_trip_with_in_memory_repository():
+    """Embed via pipeline into InMemoryRepository, then invalidate; embeddings gone."""
+    from rca_llm.testing import HashEmbeddingTransport
+    from rca_mar.repository import InMemoryRepository
+
+    repo = InMemoryRepository()
+
+    # Embed documents into the repo using the real pipeline
+    listener = build_document_embedding_listener(
+        doc_client=_StubDocClient(),
+        llm=_FakeLLM(_Resp(content="summary")),
+        repo=repo,
+        embed_transport=HashEmbeddingTransport(dim=1024),
+        model="voyage-3",
+    )
+    await listener(_Row(connection_id="conn-doc", plant_id="refinery-gc", category="document"))
+
+    # Verify something was embedded
+    assert len(repo._doc_embeddings) == 1
+    assert repo._doc_embeddings[0]["connection_id"] == "conn-doc"
+
+    # Now invalidate using the real InMemoryRepository as the store
+    invalidator = make_document_embedding_invalidator(repo)
+    await invalidator(_Row(connection_id="conn-doc", category="document"))
+
+    # Embeddings must be gone
+    assert repo._doc_embeddings == []

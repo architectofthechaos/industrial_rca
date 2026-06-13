@@ -207,6 +207,95 @@ def test_activation_listener_failure_does_not_break_activation():
     assert resp.json()["status"] == "active"
 
 
+# -- deactivation_listener seam (Sprint 6 WI4 D16) -----------------------
+
+def test_deactivation_listener_invoked_on_patch_to_disabled():
+    """A deactivation_listener receives the row when PATCH drives status to 'disabled'."""
+    received: list = []
+
+    async def _listener(row):
+        received.append(row)
+
+    repo = InMemoryRepository()
+    client, _ = _client(
+        repo=repo,
+        probes={"pi_historian": _ok_probe_historian},
+        deactivation_listener=_listener,
+    )
+    cid = _create_test_activate(client)
+    # activate first so the transition active->disabled is valid
+    client.post(f"/connections/{cid}/activate")
+    assert len(received) == 0  # listener not triggered by activate
+
+    resp = client.patch(f"/connections/{cid}", json={"status": "disabled"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "disabled"
+
+    assert len(received) == 1
+    row = received[0]
+    assert row.connection_id == cid
+    assert row.status == "disabled"
+
+
+def test_deactivation_listener_invoked_on_delete():
+    """A deactivation_listener receives the row when DELETE soft-disables the connection."""
+    received: list = []
+
+    async def _listener(row):
+        received.append(row)
+
+    repo = InMemoryRepository()
+    client, _ = _client(
+        repo=repo,
+        probes={"pi_historian": _ok_probe_historian},
+        deactivation_listener=_listener,
+    )
+    cid = _create_test_activate(client)
+    client.post(f"/connections/{cid}/activate")
+
+    resp = client.delete(f"/connections/{cid}")
+    # hard-deleted (no aliases) -> 204
+    assert resp.status_code == 204, resp.text
+
+    assert len(received) == 1
+    row = received[0]
+    assert row.connection_id == cid
+    assert row.status == "disabled"
+
+
+def test_deactivation_listener_failure_does_not_break_request():
+    """A raising deactivation_listener must not cause PATCH/DELETE to fail."""
+
+    async def _bad_listener(row):
+        raise RuntimeError("deactivation listener exploded")
+
+    repo = InMemoryRepository()
+    client, _ = _client(
+        repo=repo,
+        probes={"pi_historian": _ok_probe_historian},
+        deactivation_listener=_bad_listener,
+    )
+    cid = _create_test_activate(client)
+    client.post(f"/connections/{cid}/activate")
+
+    # PATCH to disabled still succeeds despite listener exception
+    resp = client.patch(f"/connections/{cid}", json={"status": "disabled"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "disabled"
+
+    # Re-create to test DELETE path
+    repo2 = InMemoryRepository()
+    client2, _ = _client(
+        repo=repo2,
+        probes={"pi_historian": _ok_probe_historian},
+        deactivation_listener=_bad_listener,
+    )
+    cid2 = _create_test_activate(client2)
+    client2.post(f"/connections/{cid2}/activate")
+    resp2 = client2.delete(f"/connections/{cid2}")
+    assert resp2.status_code == 204, resp2.text
+
+
 # -- secret never exposed (§1.5) -----------------------------------------
 
 _SECRET_ENV = "PI_TEST_PASSWORD_XYZ"

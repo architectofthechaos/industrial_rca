@@ -51,6 +51,7 @@ def build_router(
     secret_resolver: SecretResolver,
     probes: dict[str, Probe] | None = None,
     activation_listener: ActivationListener | None = None,
+    deactivation_listener: ActivationListener | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/connections", tags=["connections"])
 
@@ -138,6 +139,11 @@ def build_router(
                 status_code=409,
                 detail={"error": "category_conflict",
                         "conflicting_connection_id": exc.existing_connection_id}) from exc
+        if deactivation_listener is not None and changes.get("status") == "disabled":
+            try:
+                await deactivation_listener(updated)
+            except Exception as exc:  # noqa: BLE001 — a listener failure must not fail the request
+                logger.warning("deactivation_listener failed for %s: %s", connection_id, exc)
         return ConnectionResponse.from_row(updated)
 
     # -- delete --------------------------------------------------------------
@@ -151,6 +157,11 @@ def build_router(
         # still drive it to disabled — DELETE is the terminal operator action.)
         disabled = replace(row, status="disabled")
         await repo.upsert_connection(disabled)
+        if deactivation_listener is not None:
+            try:
+                await deactivation_listener(disabled)
+            except Exception as exc:  # noqa: BLE001 — a listener failure must not fail the request
+                logger.warning("deactivation_listener failed for %s: %s", connection_id, exc)
         refs = await repo.count_aliases_for_connection(connection_id)
         if refs == 0:
             await repo.delete_connection(connection_id)
