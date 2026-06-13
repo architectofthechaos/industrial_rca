@@ -334,3 +334,17 @@ class DocumentEmbedding(Base):
     connection_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow)
+
+
+class ResponseCacheRow(Base):
+    """Content-addressed LLM response cache for cross-process determinism replay (Sprint 6 WI5).
+
+    Keyed by ``prompt_hash`` (SHA-256 of the rendered prompt). ``payload`` is the LLM client's
+    cached value dict (``content``/``structured``/``model``/``model_version``/``input_tokens``/
+    ``output_tokens``). Provisioned by migration 0008."""
+
+    __tablename__ = "response_cache"
+    prompt_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow)

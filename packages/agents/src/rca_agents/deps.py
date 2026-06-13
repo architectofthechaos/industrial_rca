@@ -24,9 +24,15 @@ def build_llm(*, use_postgres: bool) -> Any:
     environment where the SDKs + keys are installed, so it gets the real transports.
     """
     audit = None
+    cache: Any = None
     if use_postgres:
         from rca_llm.audit_pg import PostgresLlmAuditSink   # WI5 (lazy)
+        from rca_llm.cache_pg import PostgresResponseCache  # Sprint 6 WI5 (lazy)
         audit = PostgresLlmAuditSink()
+        # Cross-process determinism replay: the cache must outlive a single process so a record
+        # run and a later replay run (or separate Temporal activities) share it. Hermetic path
+        # (use_postgres False) passes no cache → client defaults to InMemoryResponseCache.
+        cache = PostgresResponseCache()
     try:
         from rca_llm.transports import AnthropicTransport, VoyageEmbeddingTransport
         transport: Any = AnthropicTransport()
@@ -37,7 +43,7 @@ def build_llm(*, use_postgres: bool) -> Any:
         transport = None
         embedding_transport = None
     return LLMClientImpl(registry=default_registry(), transport=transport,
-                         embedding_transport=embedding_transport, audit=audit)
+                         embedding_transport=embedding_transport, audit=audit, cache=cache)
 
 
 def build_repos(*, use_postgres: bool):
